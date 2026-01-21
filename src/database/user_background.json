@@ -1,6 +1,6 @@
 {
   "10002": {
-    "default": "Background-hoshi-5.jpg",
+    "default": "Background-hoshi-4.jpg",
     "custom": "",
     "mode": 1
   },
@@ -10,34 +10,34 @@
     "mode": 0
   },
   "10005": {
-    "default": "Background-hoshi-1.jpg",
+    "default": "Background1.jpg",
     "custom": "",
-    "mode": 1
+    "mode": 0
   },
   "10006": {
-    "default": "Background11.jpg",
-    "custom": "",
-    "mode": 0
-  },
-  "10007": {
-    "default": "Background4.jpg",
-    "custom": "",
-    "mode": 0
-  },
-  "10008": {
-    "default": "Background13.jpg",
-    "custom": "",
-    "mode": 0
-  },
-  "10009": {
     "default": "Background-hoshi-2.jpg",
     "custom": "",
     "mode": 1
   },
-  "10010": {
-    "default": "Background-hoshi-5.jpg",
+  "10007": {
+    "default": "Background-hoshi-1.jpg",
     "custom": "",
     "mode": 1
+  },
+  "10008": {
+    "default": "Background14.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10009": {
+    "default": "Background-hoshi-3.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10010": {
+    "default": "Background8.jpg",
+    "custom": "",
+    "mode": 0
   },
   "10011": {
     "default": "Background9.jpg",
@@ -50,12 +50,12 @@
     "mode": 0
   },
   "10014": {
-    "default": "Background-hoshi-1.jpg",
+    "default": "Background6.jpg",
     "custom": "",
-    "mode": 1
+    "mode": 0
   },
   "10015": {
-    "default": "Background6.jpg",
+    "default": "Background2.jpg",
     "custom": "",
     "mode": 0
   },
@@ -70,9 +70,9 @@
     "mode": 0
   },
   "10018": {
-    "default": "Background13.jpg",
+    "default": "Background-hoshi-3.jpg",
     "custom": "",
-    "mode": 0
+    "mode": 1
   },
   "10019": {
     "default": "Background-hoshi-3.jpg",
@@ -80,13 +80,168 @@
     "mode": 1
   },
   "10003": {
-    "default": "Background-hoshi-4.jpg",
+    "default": "Background-hoshi-5.jpg",
     "custom": "",
     "mode": 1
   },
   "10013": {
+    "default": "Background7.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10001": {
+    "default": "Background-hoshi-5.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10020": {
     "default": "Background3.jpg",
     "custom": "",
     "mode": 0
+  },
+  "10021": {
+    "default": "Background6.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10022": {
+    "default": "Background-hoshi-1.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10023": {
+    "default": "Background-hoshi-5.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10024": {
+    "default": "Background-hoshi-5.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10025": {
+    "default": "Background4.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10029": {
+    "default": "Background13.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10030": {
+    "default": "Background-hoshi-5.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10031": {
+    "default": "Background11.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10032": {
+    "default": "Background9.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10033": {
+    "default": "Background5.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10028": {
+    "default": "Background5.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10034": {
+    "default": "Background11.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10035": {
+    "default": "Background7.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10036": {
+    "default": "Background4.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10037": {
+    "default": "Background-hoshi-1.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10038": {
+    "default": "Background12.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10039": {
+    "default": "Background13.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10040": {
+    "default": "Background-hoshi-2.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10041": {
+    "default": "Background7.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10042": {
+    "default": "Background-hoshi-3.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10043": {
+    "default": "Background-hoshi-1.jpg",
+    "custom": "",
+    "mode": 1
+  },
+  "10044": {
+    "default": "Background5.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10045": {
+    "default": "Background1.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10046": {
+    "default": "Background11.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10047": {
+    "default": "Background2.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10048": {
+    "default": "Background2.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10049": {
+    "default": "Background6.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10050": {
+    "default": "Background11.jpg",
+    "custom": "",
+    "mode": 0
+  },
+  "10051": {
+    "default": "Background-hoshi-2.jpg",
+    "custom": "",
+    "mode": 1
   }
 }
