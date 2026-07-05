@@ -856,11 +856,5 @@ driver = get_driver()
 @driver.on_startup
 async def init_fishing():
     """初始化钓鱼插件"""
-    from pathlib import Path
-
-    plugin_dir = Path(__file__).parent.parent.parent
-    db_path = plugin_dir / "src" / "database" / "koinoribot.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    DatabaseManager.set_db_path(str(db_path))
-    DatabaseManager.init_fishing_database()
+    # 被 db.py 接管
     logger.info("Fishing 插件初始化完成")

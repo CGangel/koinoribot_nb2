@@ -44,7 +44,6 @@ class FishingManager:
     @classmethod
     async def get_user_info(cls, uid: int) -> dict:
         """获取用户钓鱼背包"""
-        DatabaseManager.init_fishing_database()
         
         def _query():
             conn = DatabaseManager.get_connection()
@@ -73,7 +72,6 @@ class FishingManager:
     @classmethod
     async def save_user_info(cls, uid: int, user_info: dict):
         """保存用户钓鱼背包"""
-        DatabaseManager.init_fishing_database()
         
         def _save():
             conn = DatabaseManager.get_connection()

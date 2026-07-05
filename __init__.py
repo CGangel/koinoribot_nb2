@@ -22,6 +22,8 @@ from . import resources
 from . import nickname
 from .koinori_config import config as koinori_config
 from . import tools as _tools
+from .db import run_migrations
+
 __plugin_meta__ = PluginMetadata(
     name="koinoribot_nb2",
     description="Koinoribot NoneBot2 版本 - 集成多种娱乐功能",
@@ -53,9 +55,7 @@ async def init_koinoribot():
     nickname.set_db_path(str(db_path))
     
     # 初始化数据库
-    uid_manager.init_uid_database()
-    money.init_money_database()
-    nickname.init_nickname_database()
+    run_migrations()
     
     # 读取官Bot AppID配置
     if koinori_config.qqbot_appid:

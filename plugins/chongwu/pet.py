@@ -15,14 +15,13 @@ from .petconfig import BASE_PETS, STATUS_DESCRIPTIONS, GROWTH_STAGE_1, GROWTH_ST
 
 # 数据库路径
 _db_path: Optional[str] = None
-_db_initialized = False
 
 
 def set_db_path(path: str):
     """设置数据库路径"""
-    global _db_path, _db_initialized
+    global _db_path
     _db_path = path
-    _db_initialized = False
+
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -36,43 +35,8 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def init_pet_database():
-    """初始化宠物数据库"""
-    global _db_initialized
-    if _db_initialized:
-        return
-    
-    conn = _get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_pets (
-            uid INTEGER PRIMARY KEY,
-            pet_data TEXT NOT NULL,
-            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_items (
-            uid INTEGER PRIMARY KEY,
-            items_data TEXT NOT NULL,
-            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-
-    
-    conn.commit()
-    conn.close()
-    _db_initialized = True
-
-
 async def get_user_pets() -> Dict[int, dict]:
     """获取所有用户的宠物数据"""
-    init_pet_database()
-    
     def _query():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -92,8 +56,6 @@ async def get_user_pets() -> Dict[int, dict]:
 
 async def get_user_pet(user_id: int) -> Optional[dict]:
     """获取单个用户的宠物"""
-    init_pet_database()
-    
     def _query():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -111,8 +73,6 @@ async def get_user_pet(user_id: int) -> Optional[dict]:
 
 async def update_user_pet(user_id: int, pet_data: dict):
     """更新用户的宠物数据"""
-    init_pet_database()
-    
     def _update():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -129,8 +89,6 @@ async def update_user_pet(user_id: int, pet_data: dict):
 
 async def remove_user_pet(user_id: int) -> bool:
     """移除用户的宠物"""
-    init_pet_database()
-    
     def _remove():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -146,8 +104,6 @@ async def remove_user_pet(user_id: int) -> bool:
 
 async def get_user_items(user_id: int) -> dict:
     """获取用户的物品"""
-    init_pet_database()
-    
     def _query():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -165,8 +121,6 @@ async def get_user_items(user_id: int) -> dict:
 
 async def add_user_item(user_id: int, item_name: str, quantity: int = 1):
     """给用户添加物品"""
-    init_pet_database()
-    
     def _add():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -195,8 +149,6 @@ async def add_user_item(user_id: int, item_name: str, quantity: int = 1):
 
 async def use_user_item(user_id: int, item_name: str, quantity: int = 1) -> bool:
     """使用用户物品"""
-    init_pet_database()
-    
     def _use():
         conn = _get_connection()
         cursor = conn.cursor()

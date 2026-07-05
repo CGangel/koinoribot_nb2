@@ -103,22 +103,6 @@ def _get_db() -> sqlite3.Connection:
     return conn
 
 
-def _ensure_ai_draw_usage_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS ai_draw_usage (
-                uid INTEGER PRIMARY KEY,
-                date TEXT NOT NULL DEFAULT '',
-                count INTEGER NOT NULL DEFAULT 0,
-                free_draw_count INTEGER NOT NULL DEFAULT 0
-            )"""
-    )
-
-
-def init_db() -> None:
-    with _get_db() as conn:
-        _ensure_ai_draw_usage_schema(conn)
-        conn.commit()
-
 
 def _today() -> str:
     return time.strftime("%Y-%m-%d", time.localtime())
@@ -131,7 +115,6 @@ async def check_daily_limit(uid: int) -> bool:
 
     def _do():
         with _get_db() as conn:
-            _ensure_ai_draw_usage_schema(conn)
             row = conn.execute(
                 "SELECT date, count FROM ai_draw_usage WHERE uid=?", (uid,)
             ).fetchone()
@@ -149,7 +132,6 @@ async def check_daily_limit(uid: int) -> bool:
 
 def _get_free_draw_count_sync(uid: int) -> int:
     with _get_db() as conn:
-        _ensure_ai_draw_usage_schema(conn)
         row = conn.execute(
             "SELECT free_draw_count FROM ai_draw_usage WHERE uid=?", (uid,)
         ).fetchone()
@@ -162,7 +144,6 @@ def _add_free_draw_count_sync(uid: int, amount: int) -> int:
         return _get_free_draw_count_sync(uid)
 
     with _get_db() as conn:
-        _ensure_ai_draw_usage_schema(conn)
         row = conn.execute("SELECT uid FROM ai_draw_usage WHERE uid=?", (uid,)).fetchone()
         if row is None:
             conn.execute(
@@ -201,7 +182,6 @@ async def record_draw_success(uid: int) -> None:
 
     def _do():
         with _get_db() as conn:
-            _ensure_ai_draw_usage_schema(conn)
             row = conn.execute(
                 "SELECT date FROM ai_draw_usage WHERE uid=?", (uid,)
             ).fetchone()
@@ -232,7 +212,6 @@ async def reset_draw_usage(target_uid: int | None = None) -> int:
 
     def _do():
         with _get_db() as conn:
-            _ensure_ai_draw_usage_schema(conn)
             if target_uid is None:
                 cursor = conn.execute(
                     "UPDATE ai_draw_usage SET date='', count=0 WHERE date<>'' OR count<>0"
@@ -253,8 +232,7 @@ async def reset_draw_usage(target_uid: int | None = None) -> int:
 @driver.on_startup
 async def on_startup():
     """初始化数据库"""
-    loop = __import__("asyncio").get_event_loop()
-    await loop.run_in_executor(None, init_db)
+    # 数据库已被db.py初始化,无需重复初始化
     logger.info(
         f"ai_draw 初始化完成 "
         f"(deepseek_key={'***' if koinori_config.deepseek_api_key else '未配置'}, "
@@ -520,7 +498,7 @@ async def check_quota_and_balance(uid: int, cmd, allow_free_draw: bool = True) -
 def pay_draw_cost(uid: int, allow_free_draw: bool = True) -> DrawPayment:
     if allow_free_draw:
         with _get_db() as conn:
-            _ensure_ai_draw_usage_schema(conn)
+            
             cursor = conn.execute(
                 """
                 UPDATE ai_draw_usage

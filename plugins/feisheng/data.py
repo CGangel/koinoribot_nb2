@@ -21,47 +21,8 @@ def _get_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-def init_feisheng_database():
-    """初始化飞升数据库表"""
-    try:
-        conn = _get_connection()
-        cursor = conn.cursor()
-        
-        # 飞升数据表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_feisheng (
-                uid INTEGER PRIMARY KEY,
-                pet_ascension_progress INTEGER DEFAULT 0,
-                ascension_progress INTEGER DEFAULT 0,
-                is_pet_ascended INTEGER DEFAULT 0,
-                is_ascended INTEGER DEFAULT 0,
-                realm_level INTEGER DEFAULT 0,
-                daily_cultivation_count INTEGER DEFAULT 0,
-                cultivation_date TEXT DEFAULT '',
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-            )
-        ''')
-        
-        # 检查 realm_level 列是否存在 (用于旧表迁移)
-        cursor.execute("PRAGMA table_info(user_feisheng)")
-        columns = [column[1] for column in cursor.fetchall()]
-        if "realm_level" not in columns:
-            cursor.execute("ALTER TABLE user_feisheng ADD COLUMN realm_level INTEGER DEFAULT 0")
-        if "daily_cultivation_count" not in columns:
-             cursor.execute("ALTER TABLE user_feisheng ADD COLUMN daily_cultivation_count INTEGER DEFAULT 0")
-        if "cultivation_date" not in columns:
-             cursor.execute("ALTER TABLE user_feisheng ADD COLUMN cultivation_date TEXT DEFAULT ''")
-        
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        # 如果uid_manager还没初始化db_path，可能会报错，忽略或记录日志
-        pass
-
 async def get_feisheng_data(uid: int) -> dict:
     """获取用户的飞升数据"""
-    init_feisheng_database()
     
     def _query():
         conn = _get_connection()
@@ -89,7 +50,6 @@ async def get_feisheng_data(uid: int) -> dict:
 
 async def update_feisheng_data(uid: int, data: dict):
     """更新用户的飞升数据"""
-    init_feisheng_database()
     
     def _update():
         conn = _get_connection()
@@ -165,31 +125,8 @@ async def increase_pet_ascension_progress(uid: int, amount: int) -> dict:
 
 # ===== 物品系统 =====
 
-def init_feisheng_items_table():
-    """初始化飞升物品表"""
-    try:
-        conn = _get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_feisheng_items (
-                uid INTEGER,
-                item_name TEXT,
-                count INTEGER DEFAULT 0,
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (uid, item_name),
-                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        pass
-
 async def get_user_feisheng_items(uid: int) -> Dict[str, int]:
     """获取用户所有飞升物品"""
-    init_feisheng_items_table()
     
     def _query():
         conn = _get_connection()
@@ -205,7 +142,6 @@ async def get_user_feisheng_items(uid: int) -> Dict[str, int]:
 
 async def add_feisheng_item(uid: int, item_name: str, count: int = 1):
     """添加飞升物品"""
-    init_feisheng_items_table()
     
     def _update():
         conn = _get_connection()
@@ -229,7 +165,6 @@ async def add_feisheng_item(uid: int, item_name: str, count: int = 1):
 
 async def use_feisheng_item(uid: int, item_name: str, count: int = 1) -> bool:
     """使用/消耗飞升物品"""
-    init_feisheng_items_table()
     
     def _update():
         conn = _get_connection()
@@ -261,7 +196,6 @@ async def get_all_feisheng_status() -> dict[int, bool]:
     Returns:
         {uid: is_ascended} 已飞升为True，未飞升为False
     """
-    init_feisheng_database()
     
     def _query():
         conn = _get_connection()
@@ -282,7 +216,6 @@ async def get_all_pet_feisheng_status() -> dict[int, dict]:
     Returns:
         {uid: {"is_pet_ascended": bool, "is_ascended": bool}}
     """
-    init_feisheng_database()
     
     def _query():
         conn = _get_connection()
@@ -299,7 +232,6 @@ async def get_all_pet_feisheng_status() -> dict[int, dict]:
 
 async def get_feisheng_leaderboard(limit: int = 50) -> list[dict]:
     """获取飞升排行榜数据"""
-    init_feisheng_database()
     
     def _query():
         conn = _get_connection()

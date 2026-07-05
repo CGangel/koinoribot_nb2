@@ -67,14 +67,12 @@ class _MoneyRepository:
 
     def __init__(self):
         self._db_path: Optional[str] = None
-        self._db_initialized = False
 
     # ===== 数据库路径管理 =====
 
     def set_database_path(self, path: str):
         """设置数据库路径"""
         self._db_path = path
-        self._db_initialized = False
 
     def get_database_path(self) -> str:
         """获取数据库路径"""
@@ -89,41 +87,6 @@ class _MoneyRepository:
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
-    # ===== 数据库初始化 =====
-
-    def init_database(self):
-        """初始化用户资产数据库表"""
-        if self._db_initialized:
-            return
-
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_money (
-                uid INTEGER PRIMARY KEY,
-                gold INTEGER NOT NULL DEFAULT 3000,
-                luckygold INTEGER NOT NULL DEFAULT 0,
-                starstone INTEGER NOT NULL DEFAULT 12500,
-                kirastone INTEGER NOT NULL DEFAULT 0,
-                last_login INTEGER NOT NULL DEFAULT 0,
-                rp INTEGER NOT NULL DEFAULT 0,
-                logindays INTEGER NOT NULL DEFAULT 0,
-                exgacha INTEGER NOT NULL DEFAULT 0,
-                goodluck INTEGER NOT NULL DEFAULT 0,
-                badluck INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-            )
-        """)
-
-        conn.commit()
-        conn.close()
-        self._db_initialized = True
-
-    def _ensure_initialized(self):
-        """确保数据库已初始化"""
-        if not self._db_initialized:
-            self.init_database()
 
     def _ensure_user_exists(self, cursor, uid: int) -> bool:
         """确保用户记录存在，不存在则创建"""
@@ -156,8 +119,6 @@ class _MoneyRepository:
 
     def get(self, uid: int, *keys: str) -> Optional[Union[int, tuple]]:
         """获取用户指定资源的数量。"""
-        self._ensure_initialized()
-
         if not keys or any(key not in KEYWORD_SET for key in keys):
             return None
 
@@ -190,8 +151,6 @@ class _MoneyRepository:
 
     def set(self, uid: int, key: str, value: int) -> int:
         """直接设置用户某种资源。gold 只限制上限，不限制下限。"""
-        self._ensure_initialized()
-
         if key not in KEYWORD_SET:
             return 0
 
@@ -218,8 +177,6 @@ class _MoneyRepository:
 
     def increase(self, uid: int, key: str, value: int) -> int:
         """原子增加用户某种资源。"""
-        self._ensure_initialized()
-
         if key not in KEYWORD_SET:
             return 0
 
@@ -251,8 +208,6 @@ class _MoneyRepository:
 
     def decrease(self, uid: int, key: str, value: int) -> int:
         """原子减少用户某种资源。gold 允许扣成负数。"""
-        self._ensure_initialized()
-
         if key not in KEYWORD_SET:
             return 0
 
@@ -284,8 +239,6 @@ class _MoneyRepository:
 
     def increase_all(self, key: str, value: int) -> int:
         """增加所有用户某种资源。"""
-        self._ensure_initialized()
-
         if key not in KEYWORD_SET:
             return 0
 
@@ -311,8 +264,6 @@ class _MoneyRepository:
 
     def get_all(self, key: str) -> dict[int, int]:
         """获取所有用户指定资产，返回 {uid: value}。"""
-        self._ensure_initialized()
-
         if key not in KEYWORD_SET:
             return {}
 
@@ -334,8 +285,6 @@ class _MoneyRepository:
 
     def delete_user(self, uid: int) -> int:
         """删除用户账户。"""
-        self._ensure_initialized()
-
         conn = None
         try:
             conn = self._get_connection()
@@ -532,10 +481,6 @@ def set_database_path(path: str):
 
 def get_database_path() -> str:
     return _repository.get_database_path()
-
-
-def init_money_database():
-    _repository.init_database()
 
 
 def translate_name(name: str) -> str:

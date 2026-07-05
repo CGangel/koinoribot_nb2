@@ -46,37 +46,6 @@ def _get_db_path() -> str:
     return str(plugin_dir / "src" / "database" / "koinoribot.db")
 
 
-def _init_tables():
-    conn = sqlite3.connect(_get_db_path())
-    try:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS public_whitelist (
-                owner_qq TEXT PRIMARY KEY,
-                bot_qq TEXT UNIQUE NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        ''')
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS whitelist_review (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                owner_qq TEXT NOT NULL,
-                bot_qq TEXT NOT NULL,
-                reason TEXT NOT NULL DEFAULT '',
-                compliance_commit TEXT NOT NULL DEFAULT '',
-                tech_commit TEXT NOT NULL DEFAULT '',
-                group_id TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT 'pending',
-                reviewer_qq TEXT DEFAULT NULL,
-                review_comment TEXT DEFAULT NULL,
-                created_at TEXT NOT NULL,
-                reviewed_at TEXT DEFAULT NULL
-            )
-        ''')
-        conn.commit()
-    finally:
-        conn.close()
-
-
 # ================== 内存缓存 ==================
 
 _cache_owner_to_bot: Dict[str, str] = {}
@@ -1205,7 +1174,6 @@ driver = get_driver()
 
 @driver.on_startup
 async def _init_whitelist():
-    _init_tables()
     load_cache()
     await _start_whitelist_web_server()
 

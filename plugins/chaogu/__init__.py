@@ -30,7 +30,7 @@ from ...nickname import get_user_nickname
 from ..ai_draw import add_free_draw_count
 
 from .stock_utils import (
-    set_db_path, init_stock_database,
+    set_db_path,
     STOCKS, MARKET_EVENTS, MANUAL_EVENT_TYPES, HISTORY_DURATION_HOURS,
     get_stock_data, save_stock_data,
     get_user_portfolios, save_user_portfolios,
@@ -581,7 +581,6 @@ async def init_chaogu():
     db_path = plugin_dir / "src" / "database" / "koinoribot.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     set_db_path(str(db_path))
-    init_stock_database()
     
     # 初始化股票数据
     stock_data = await get_stock_data()

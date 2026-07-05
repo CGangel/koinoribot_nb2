@@ -15,7 +15,6 @@ from typing import Literal, Optional
 
 # 数据库路径
 _db_path: Optional[str] = None
-_db_initialized = False
 
 # UID 起始值
 UID_START = 10001
@@ -23,9 +22,8 @@ UID_START = 10001
 
 def set_database_path(path: str) -> None:
     """设置数据库路径"""
-    global _db_path, _db_initialized
+    global _db_path
     _db_path = path
-    _db_initialized = False
 
 
 def get_database_path() -> str:
@@ -44,50 +42,8 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def init_uid_database():
-    """初始化 UID 数据库表结构"""
-    global _db_initialized
-    if _db_initialized:
-        return
-    
-    conn = _get_connection()
-    cursor = conn.cursor()
-    
-    # 用户 UID 映射表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_uid_mapping (
-            uid INTEGER PRIMARY KEY,
-            onebot_id TEXT UNIQUE,
-            qqbot_id TEXT UNIQUE,
-            created_at TEXT NOT NULL
-        )
-    ''')
-    
-    # UID 序列表（用于生成自增 UID）
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS uid_sequence (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            next_uid INTEGER NOT NULL DEFAULT 10001
-        )
-    ''')
-    
-    # 确保序列表有初始值
-    cursor.execute('INSERT OR IGNORE INTO uid_sequence (id, next_uid) VALUES (1, ?)', (UID_START,))
-    
-    conn.commit()
-    conn.close()
-    _db_initialized = True
-
-
-def _ensure_initialized():
-    """确保数据库已初始化"""
-    if not _db_initialized:
-        init_uid_database()
-
-
 def _get_next_uid() -> int:
     """获取下一个可用的 UID 并自增"""
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -116,7 +72,6 @@ def get_uid(platform: Platform, external_id: str) -> int:
     Returns:
         统一的内部 UID
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -162,7 +117,6 @@ def get_uid_by_external_id(platform: Platform, external_id: str) -> Optional[int
     Returns:
         UID，如果未找到则返回 None
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -184,7 +138,6 @@ def get_external_ids(uid: int) -> dict[str, Optional[str]]:
     Returns:
         {"onebot_id": ..., "qqbot_id": ...}
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -213,7 +166,6 @@ def bind_external_id(uid: int, platform: Platform, external_id: str) -> bool:
     Returns:
         是否绑定成功
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -244,7 +196,6 @@ def bind_external_id(uid: int, platform: Platform, external_id: str) -> bool:
 
 def get_all_uids() -> list[int]:
     """获取所有 UID 列表"""
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -257,7 +208,6 @@ def get_all_uids() -> list[int]:
 
 def get_uid_count() -> int:
     """获取 UID 总数"""
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -278,7 +228,6 @@ def is_uid_exists(uid: int) -> bool:
     Returns:
         True 如果存在，否则 False
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     
@@ -365,7 +314,6 @@ def delete_uid_mapping(uid: int) -> bool:
     Returns:
         是否删除成功
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
 
@@ -390,7 +338,6 @@ def rebind_external_id(target_uid: int, platform: Platform, external_id: str) ->
     Returns:
         是否成功
     """
-    _ensure_initialized()
     conn = _get_connection()
     cursor = conn.cursor()
     column = "onebot_id" if platform == "onebot" else "qqbot_id"

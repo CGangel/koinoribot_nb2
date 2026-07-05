@@ -118,14 +118,12 @@ MANUAL_EVENT_TYPES = {
 
 # 数据库路径
 _db_path: Optional[str] = None
-_db_initialized = False
 
 
 def set_db_path(path: str):
     """设置数据库路径"""
-    global _db_path, _db_initialized
+    global _db_path
     _db_path = path
-    _db_initialized = False
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -139,81 +137,8 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def init_stock_database():
-    """初始化股票数据库"""
-    global _db_initialized
-    if _db_initialized:
-        return
-    
-    conn = _get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS stock_data (
-            stock_name TEXT PRIMARY KEY,
-            initial_price REAL NOT NULL,
-            history_data TEXT NOT NULL,
-            events_data TEXT NOT NULL,
-            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_portfolios (
-            uid INTEGER PRIMARY KEY,
-            portfolio_data TEXT NOT NULL,
-            updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-    
-    # 豪赌记录表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS gamble_record (
-            uid INTEGER PRIMARY KEY,
-            reduce_record INTEGER NOT NULL DEFAULT 0,
-            increase_record INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-    
-    # 每日赌博限制表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS daily_gamble_limits (
-            uid INTEGER PRIMARY KEY,
-            last_gamble_date TEXT NOT NULL,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-    
-    # 每日转盘次数限制表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS daily_turntable_limits (
-            uid INTEGER PRIMARY KEY,
-            last_date TEXT NOT NULL,
-            turn_count INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-    
-    # 每日低保领取记录表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS daily_prek (
-            uid INTEGER PRIMARY KEY,
-            last_prek_date TEXT NOT NULL,
-            FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    _db_initialized = True
-
-
 async def get_stock_data() -> Dict[str, dict]:
     """获取所有股票数据"""
-    init_stock_database()
-    
     def _query():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -249,8 +174,6 @@ async def get_stock_data() -> Dict[str, dict]:
 
 async def save_stock_data(data: Dict[str, dict]):
     """保存所有股票数据"""
-    init_stock_database()
-    
     def _save():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -274,8 +197,6 @@ async def save_stock_data(data: Dict[str, dict]):
 
 async def get_user_portfolios() -> Dict[int, dict]:
     """获取所有用户持仓"""
-    init_stock_database()
-    
     def _query():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -294,8 +215,6 @@ async def get_user_portfolios() -> Dict[int, dict]:
 
 async def save_user_portfolios(data: Dict[int, dict]):
     """保存所有用户持仓"""
-    init_stock_database()
-    
     def _save():
         conn = _get_connection()
         cursor = conn.cursor()
@@ -326,9 +245,6 @@ async def update_user_portfolio(user_id: int, stock_name: str, change_amount: in
     from nonebot import logger
     
     logger.info(f"[chaogu] update_user_portfolio called: user_id={user_id}, stock={stock_name}, amount={change_amount}")
-    logger.info(f"[chaogu] _db_path = {_db_path}, _db_initialized = {_db_initialized}")
-    
-    init_stock_database()
     
     # 捕获外部变量到本地，确保闭包正确
     _user_id = user_id
@@ -566,7 +482,7 @@ def generate_stock_chart(stock_name: str, history: List[tuple], stock_data: Dict
 
 async def update_gamble_record(uid: int, change_amount: int) -> bool:
     """更新豪赌记录 (正数增加increase_record，负数增加reduce_record)"""
-    init_stock_database()
+    
     
     def _update():
         conn = _get_connection()
@@ -599,7 +515,7 @@ async def update_gamble_record(uid: int, change_amount: int) -> bool:
 
 async def get_all_gamble_record() -> Dict[int, dict]:
     """获取所有用户的豪赌记录"""
-    init_stock_database()
+    
     
     def _query():
         conn = _get_connection()
@@ -629,7 +545,7 @@ async def get_user_gamble_record(uid: int) -> dict:
 async def check_daily_gamble_limit(uid: int) -> bool:
     """检查用户今天是否还可以赌博（True=可以，False=今天已赌过）"""
     from datetime import date
-    init_stock_database()
+    
     
     def _check():
         conn = _get_connection()
@@ -652,7 +568,7 @@ async def check_daily_gamble_limit(uid: int) -> bool:
 async def record_gamble_today(uid: int):
     """记录用户今天进行了赌博"""
     from datetime import date
-    init_stock_database()
+    
     
     def _record():
         conn = _get_connection()
@@ -680,7 +596,7 @@ async def check_turntable_limit(uid: int) -> tuple[bool, int]:
     返回: (can_spin, remaining_turns)
     """
     from datetime import date
-    init_stock_database()
+    
     
     def _check():
         conn = _get_connection()
@@ -708,7 +624,7 @@ async def check_turntable_limit(uid: int) -> tuple[bool, int]:
 async def record_turntable_spin(uid: int) -> int:
     """记录用户今天转了一次转盘，返回剩余次数"""
     from datetime import date
-    init_stock_database()
+    
     
     def _record():
         conn = _get_connection()
@@ -743,7 +659,7 @@ async def record_turntable_spin(uid: int) -> int:
 async def check_daily_prek(uid: int) -> bool:
     """检查用户今天是否已领低保（True=可以领，False=已领过）"""
     from datetime import date
-    init_stock_database()
+    
     
     def _check():
         conn = _get_connection()
@@ -766,7 +682,7 @@ async def check_daily_prek(uid: int) -> bool:
 async def record_daily_prek(uid: int):
     """记录用户今天领了低保"""
     from datetime import date
-    init_stock_database()
+    
     
     def _record():
         conn = _get_connection()

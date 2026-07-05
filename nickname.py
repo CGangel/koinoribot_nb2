@@ -7,14 +7,12 @@ from typing import Optional
 
 # 数据库文件路径
 DB_PATH: Optional[str] = None
-_db_initialized = False
 
 
 def set_db_path(path: str):
     """设置数据库路径"""
-    global DB_PATH, _db_initialized
+    global DB_PATH
     DB_PATH = path
-    _db_initialized = False
 
 
 def get_database_path() -> str:
@@ -29,37 +27,8 @@ def _get_connection():
     return sqlite3.connect(get_database_path())
 
 
-def init_nickname_database():
-    """确保数据库已初始化"""
-    global _db_initialized
-    if _db_initialized:
-        return
-    _init_db()
-    _db_initialized = True
-
-
-def _init_db():
-    """初始化数据库表"""
-    try:
-        os.makedirs(os.path.dirname(get_database_path()), exist_ok=True)
-        with _get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS call_me_please_users (
-                    uid INTEGER PRIMARY KEY,
-                    nickname TEXT NOT NULL
-                )
-                '''
-            )
-            conn.commit()
-    except Exception as e:
-        logger.error(f"[call_me_please] 数据库初始化失败: {e}")
-
-
 def get_user_nickname(uid: int) -> str:
     """获取用户设定的昵称"""
-    init_nickname_database()
     try:
         with _get_connection() as conn:
             cursor = conn.cursor()
@@ -75,7 +44,6 @@ def get_user_nickname(uid: int) -> str:
 
 def set_user_nickname(uid: int, nickname: str) -> bool:
     """设定或更新用户昵称"""
-    init_nickname_database()
     try:
         with _get_connection() as conn:
             cursor = conn.cursor()

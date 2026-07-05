@@ -18,13 +18,11 @@ class DatabaseManager:
     """数据库管理器"""
     
     _db_path: Optional[str] = None
-    _db_initialized: bool = False
     
     @classmethod
     def set_db_path(cls, path: str):
         """设置数据库路径"""
         cls._db_path = path
-        cls._db_initialized = False
     
     @classmethod
     def get_connection(cls) -> sqlite3.Connection:
@@ -36,73 +34,6 @@ class DatabaseManager:
         # 启用外键约束
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
-    
-    @classmethod
-    def init_fishing_database(cls):
-        """初始化钓鱼数据库"""
-        if cls._db_initialized:
-            return
-        
-        conn = cls.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS fishing (
-                uid INTEGER PRIMARY KEY,
-                fish_data TEXT NOT NULL,
-                statis_data TEXT NOT NULL,
-                rod_data TEXT NOT NULL,
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS fish_limit (
-                uid INTEGER PRIMARY KEY,
-                date_str TEXT NOT NULL,
-                count INTEGER NOT NULL DEFAULT 0,
-                limit_count INTEGER NOT NULL DEFAULT 0,
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-            )
-        ''')
-
-        # 漂流瓶主表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS bottles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uid INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                pick_count INTEGER DEFAULT 0,
-                deleted INTEGER DEFAULT 0,
-                created_time INTEGER NOT NULL
-            )
-        ''')
-
-        # 漂流瓶评论表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS bottle_comments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bottle_id INTEGER NOT NULL,
-                uid INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                created_time INTEGER NOT NULL,
-                FOREIGN KEY (bottle_id) REFERENCES bottles(id) ON DELETE CASCADE
-            )
-        ''')
-
-        # 确保 bottles 的 AUTOINCREMENT 从 10001 开始
-        cursor.execute("SELECT COUNT(*) FROM bottles")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute(
-                "INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('bottles', 10000)"
-            )
-
-        conn.commit()
-        conn.close()
-        cls._db_initialized = True
-        logger.info("钓鱼数据库初始化完成")
 
     @classmethod
     def check_and_update_fish_limit(cls, uid: int, count: int) -> bool:
@@ -116,7 +47,6 @@ class DatabaseManager:
         Returns:
             如果未达到上限则增加计数并返回True，达到上限返回False
         """
-        cls.init_fishing_database()
         
         today_str = datetime.now().strftime('%Y-%m-%d')
         conn = cls.get_connection()
@@ -203,7 +133,6 @@ class DatabaseManager:
         Returns:
             (today_count, limit_count)
         """
-        cls.init_fishing_database()
         
         today_str = datetime.now().strftime('%Y-%m-%d')
         conn = cls.get_connection()

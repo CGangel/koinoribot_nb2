@@ -27,7 +27,7 @@ from .petconfig import (
     GROWTH_STAGE_1, GROWTH_STAGE_2
 )
 from .pet import (
-    set_db_path, init_pet_database,
+    set_db_path,
     get_user_pet, update_user_pet, remove_user_pet, get_user_pets,
     get_user_items, add_user_item, use_user_item,
     get_pet_data, get_status_description, update_pet_status, check_pet_evolution
@@ -1264,10 +1264,5 @@ driver = get_driver()
 @driver.on_startup
 async def init_chongwu():
     """初始化宠物插件"""
-    from pathlib import Path
-    plugin_dir = Path(__file__).parent.parent.parent
-    db_path = plugin_dir / "src" / "database" / "koinoribot.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    set_db_path(str(db_path))
-    init_pet_database()
+    # 已被db.py初始化
     logger.info("Chongwu 宠物插件初始化完成")
