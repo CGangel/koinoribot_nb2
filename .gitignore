@@ -48,3 +48,6 @@ src/fonts/*.woff2
 *.db
 
 # SU
+
+# Local activation-code generator
+plugins/yxzm2_keygen/
