@@ -110,7 +110,7 @@ class KoinoribotConfig(BaseModel):
     ip_address: str = ""                    # 本机公网ip地址（公网白名单模式下必填）
 
     # 超级用户
-    superusers: list = [10002, 10001]
+    superusers: list = [10002, 10001]        #需要填写bot内的映射uid，而非真实QQ号
 
     # 黑名单用户
     blackusers: list = []
