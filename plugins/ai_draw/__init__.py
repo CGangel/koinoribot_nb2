@@ -595,8 +595,8 @@ async def ensure_draw_available(event: Event, uid: int, cmd) -> None:
     """检查文本生图功能是否可用。"""
     if not koinori_config.gpt_image_api_key:
         await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
-    if is_qqbot(event):
-        await cmd.finish("AI画图功能暂不支持QQbot~", at_sender=True)
+#    if is_qqbot(event):
+#        await cmd.finish("AI画图功能暂不支持QQbot~", at_sender=True)
     if not koinori_config.ai_draw_enable and not is_su_contributor(uid):
         await cmd.finish("AI画图功能维护中，暂时不可用~", at_sender=True)
 
@@ -605,8 +605,8 @@ async def ensure_edit_available(event: Event, uid: int, cmd) -> None:
     """检查图片编辑功能是否可用。"""
     if not koinori_config.gpt_image_api_key:
         await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
-    if is_qqbot(event):
-        await cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
+#    if is_qqbot(event):
+#        await cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
     if not koinori_config.ai_draw_enable and not is_su_contributor(uid):
         await cmd.finish("AI修图功能维护中，暂时不可用~", at_sender=True)
 
