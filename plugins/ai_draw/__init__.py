@@ -14,6 +14,7 @@ import aiohttp
 from dataclasses import dataclass
 from nonebot import on_command, get_driver
 from nonebot.adapters import Event, Bot
+from nonebot.adapters import Message as AdapterMessage
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 from nonebot.log import logger
@@ -265,7 +266,7 @@ async def on_startup():
 # ═══════════════ 图片提取 ═══════════════
 
 def _extract_onebot_image_url(event: Event) -> str | None:
-    for segment in event.message:
+    for segment in event.get_message():
         if segment.type == "image":
             return segment.data.get("url") or segment.data.get("file")
     return None
@@ -280,7 +281,7 @@ def _extract_qqbot_attachment_url(event: Event) -> str | None:
 
 
 def _extract_qqbot_message_image_url(event: Event) -> str | None:
-    for segment in event.message:
+    for segment in event.get_message():
         if segment.type in {"image", "attachment"}:
             return segment.data.get("url")
     return None
@@ -791,7 +792,7 @@ async def handle_reset_all_usage(uid: int = Depends(get_uid)):
 
 @reset_usage_cmd.handle()
 async def handle_reset_usage(
-    args: Message = CommandArg(),
+    args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
     if not _is_level0_su(uid):
@@ -816,7 +817,7 @@ async def handle_reset_usage(
 async def handle_draw(
     event: Event,
     bot: Bot,
-    args: Message = CommandArg(),
+    args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
@@ -828,7 +829,7 @@ async def handle_draw(
 async def handle_draw_high(
     event: Event,
     bot: Bot,
-    args: Message = CommandArg(),
+    args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
@@ -863,7 +864,7 @@ async def handle_draw_command(
 async def handle_edit(
     event: Event,
     bot: Bot,
-    args: Message = CommandArg(),
+    args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
@@ -875,7 +876,7 @@ async def handle_edit(
 async def handle_edit_high(
     event: Event,
     bot: Bot,
-    args: Message = CommandArg(),
+    args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:

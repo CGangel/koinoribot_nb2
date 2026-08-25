@@ -57,7 +57,7 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 - `注册验证码` 仅支持私聊使用。获取验证码后，到另一个平台发送 `绑定账号 <验证码>`，并按提示选择保留哪个 UID。
 - SU 权限分为 level 0、level 1 和 level 2。`koinori_config.superusers` 中的 UID 视为 level 0；`注册su` 根据激活码类型注册为 level 1 或 level 2。
 - 标注“SU”的命令需要 SU 权限。部分管理命令仅 level 0 可用。
-- AI 画图和 AI 修图当前仅支持 OneBot 侧发送。
+- AI 画图和 AI 修图支持 OneBot V11 和 QQBot 侧使用。
 - 红包、24 点、领养云冰祈等功能仅支持群聊场景。
 
 ## 签到、钱包与账号
