@@ -185,7 +185,11 @@ def _format_image_prompt_profile(uid: int) -> str:
     profile = _strip_image_prompt_subject(_format_profile(uid, IMAGE_PROMPT_NAME))
     profile = _image_height_re.sub("，矮个子", profile)
     profile = _image_breastsize_re.sub("", profile)
-    return profile.replace("蠢萝莉", "女孩").replace("萝莉", "女孩")
+    return (
+        profile.replace("蠢萝莉", "女孩")
+        .replace("萝莉", "女孩")
+        .replace("工口", "易害羞")
+    )
 
 
 def _build_image_prompt(profile: str) -> str:
