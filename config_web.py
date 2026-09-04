@@ -349,7 +349,7 @@ _PAGE_HTML = """<!DOCTYPE html>
   <h1>Koinoribot 配置面板 <span class="tag">修改保存后立即生效（写入数据库并同步内存）</span></h1>
   <div id="bar">
     <button onclick="save()">保存修改</button>
-    <button class="sec" onclick="load(true)">显示敏感值</button>
+    <button class="sec" id="revealBtn" onclick="toggleSecret()">显示敏感值</button>
     <button class="sec" onclick="logout()">退出</button>
     <span id="msg"></span>
   </div>
@@ -357,6 +357,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 </div>
 <script>
 let data = {sections: {}};
+let revealed = false;
 
 async function login() {
   const msg = document.getElementById('msg');
@@ -367,10 +368,17 @@ async function login() {
   if (r.ok) { load(); } else { msg.textContent = j.error || '登录失败'; }
 }
 
+function toggleSecret() { load(!revealed); }
+
 async function load(reveal) {
+  // 不传参时保持当前显示状态（保存后刷新用）
+  if (reveal === undefined) reveal = revealed;
   const r = await fetch('/api/config' + (reveal ? '?reveal=1' : ''));
   if (r.status === 401) { show(false); return; }
-  data = await r.json(); render(); show(true);
+  data = await r.json();
+  revealed = reveal;
+  document.getElementById('revealBtn').textContent = revealed ? '隐藏敏感值' : '显示敏感值';
+  render(); show(true);
 }
 
 function show(on) {
@@ -408,10 +416,7 @@ function render() {
 async function save() {
   const msg = document.getElementById('msg');
   const updates = {};
-  const current = await (await fetch('/api/config')).json();
-  const currentValues = {};
-  for (const fields of Object.values(current.sections))
-    for (const f of fields) currentValues[f.key] = f.value;
+  // 以当前渲染数据为对比基线：打码占位符未改动时不会被提交，避免覆盖真实密钥
   for (const [section, fields] of Object.entries(data.sections)) {
     for (const f of fields) {
       const el = document.getElementById('f_' + f.key);
@@ -423,10 +428,11 @@ async function save() {
       else if (f.type === 'list' || f.type === 'dict') {
         try { v = JSON.parse(v); } catch (e) { msg.textContent = section + '/' + f.key + ' 不是合法 JSON'; return; }
       }
-      const orig = currentValues[f.key];
-      const origStr = (f.type === 'list' || f.type === 'dict') ? JSON.stringify(orig) : String(orig);
-      const nowStr = (f.type === 'list' || f.type === 'dict') ? JSON.stringify(v) : String(v);
-      if (f.masked || nowStr !== origStr) updates[f.key] = v;
+      const origStr = (f.type === 'list' || f.type === 'dict')
+        ? JSON.stringify(f.value) : String(f.value);
+      const nowStr = (f.type === 'list' || f.type === 'dict')
+        ? JSON.stringify(v) : String(v);
+      if (nowStr !== origStr) updates[f.key] = v;
     }
   }
   if (!Object.keys(updates).length) { msg.textContent = '没有修改'; return; }
