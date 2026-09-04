@@ -34,6 +34,10 @@ DEFAULT_DB_PATH = _PLUGIN_DIR / "src" / "database" / "koinoribot.db"
 class KoinoribotConfig(BaseModel):
     """Koinoribot 全局配置（superusers 除外，见 passwd.py）"""
 
+    # ================== 群管理 ==================
+    join_request_auto_approve: bool = False       # 入群申请自动审批开关
+    join_request_keywords: list = ["abc", "def"]  # 入群验证内容含任一关键词则自动放行
+
     # ================== 官Bot AppID ==================
     qqbot_appid: str = ""                                              # 官方Bot AppID，用于通过 openid 获取用户昵称和头像
     qqbot_openid_api: str = "https://oiapi.net/api/Openid"            # OpenID 查询 API 地址
@@ -104,6 +108,7 @@ class KoinoribotConfig(BaseModel):
 
 # 面板分组（顺序即展示顺序）
 _FIELD_SECTIONS: dict[str, list[str]] = {
+    "群管理": ["join_request_auto_approve", "join_request_keywords"],
     "官Bot AppID": ["qqbot_appid", "qqbot_openid_api"],
     "钓鱼配置": [
         "cool_time", "fish_cd", "throw_cool_time", "salvage_cool_time",
@@ -129,6 +134,9 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
 
 # 面板字段中文说明（必须覆盖全部配置项，test_config_system 有完整性校验）
 _FIELD_DESCRIPTIONS: dict[str, str] = {
+    # 群管理
+    "join_request_auto_approve": "开启后自动审批入群申请：验证内容命中关键词且bot为群管理员时自动放行",
+    "join_request_keywords": "入群自动放行关键词列表，JSON 数组格式，如 [\"abc\", \"def\"]；验证消息或问答答案含任一关键词即命中",
     # 官Bot AppID
     "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
     "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
