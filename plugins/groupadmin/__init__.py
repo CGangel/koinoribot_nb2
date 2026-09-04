@@ -170,30 +170,69 @@ async def _ob_bot_is_group_admin(bot: onebot.Bot, group_id: int) -> bool:
     return is_admin_role(info.get("role"))
 
 
-async def _process_ob_join_request(bot: onebot.Bot, event: onebot.GroupRequestEvent) -> None:
-    """OneBot 入群申请审批。"""
+async def _process_ob_join_request(bot: onebot.Bot, event: onebot.GroupRequestEvent) -> bool:
+    """OneBot 入群申请审批。返回是否已自动放行。"""
     if not _auto_approve_enabled():
-        return
+        return False
     if not onebot_allowed(bot):
-        return
+        return False
     if event.sub_type != "add":
-        return
+        return False
     request = {"verify_info": {"verify_message": event.comment or ""}}
     if not keyword_hit(request, koinori_config.join_request_keywords):
-        return
+        return False
     if not await _ob_bot_is_group_admin(bot, event.group_id):
         logger.info(
             f"[groupadmin] 群 {event.group_id} 有命中关键词的入群申请，"
             "但bot不是管理员，跳过自动放行"
         )
-        return
+        return False
     try:
         await bot.set_group_add_request(flag=event.flag, sub_type="add", approve=True)
         logger.info(
             f"[groupadmin] 已自动放行入群申请：{event.user_id} -> {event.group_id}"
         )
+        return True
     except Exception as e:
         logger.warning(f"[groupadmin] 自动放行入群申请失败: {e}")
+        return False
+
+
+# ================== 入群申请群内推送 ==================
+
+
+def format_join_request_notice(request: dict, approved: bool) -> str:
+    """生成入群申请推送文案。request 为 JoinRequest.model_dump() 等价 dict
+    （OneBot 侧为 {"username":…, "verify_info": {"verify_message": 评论}}）。"""
+    username = (
+        request.get("username")
+        or request.get("user_id")
+        or request.get("member_openid")
+        or "未知用户"
+    )
+    lines = ["【入群申请】", f"申请人：{username}"]
+    verify = join_request_texts(request)
+    if verify:
+        lines.append(f"验证：{verify}")
+    lines.append("状态：" + ("✅ 已自动放行" if approved else "⏳ 待管理员处理"))
+    return "\n".join(lines)
+
+
+async def _push_join_notice_qq(bot, group_openid: str, text: str) -> None:
+    """推送到官Bot所在群；主动消息可能受平台限制，失败仅记 debug。"""
+    try:
+        await bot.post_group_messages(
+            group_openid=group_openid, msg_type=0, content=text
+        )
+    except Exception as e:
+        logger.debug(f"[groupadmin] 入群申请通知推送失败（官Bot主动消息受限？）: {e}")
+
+
+async def _push_join_notice_ob(bot, group_id: int, text: str) -> None:
+    try:
+        await bot.send_group_msg(group_id=int(group_id), message=text)
+    except Exception as e:
+        logger.debug(f"[groupadmin] 入群申请通知推送失败: {e}")
 
 
 # ================== 事件订阅 ==================
@@ -231,9 +270,20 @@ join_request_handler = on_notice(rule=Rule(_is_join_request), priority=5, block=
 async def handle_join_request(bot: Bot, event: Event):
     if isinstance(event, onebot.GroupRequestEvent):
         if isinstance(bot, onebot.Bot):
-            await _process_ob_join_request(bot, event)
+            request = {
+                "username": str(event.user_id),
+                "verify_info": {"verify_message": event.comment or ""},
+            }
+            approved = await _process_ob_join_request(bot, event)
+            await _push_join_notice_ob(
+                bot, event.group_id, format_join_request_notice(request, approved)
+            )
         return
     if isinstance(bot, qq.Bot):
-        await _process_qq_join_request(
-            bot, event.model_dump(), event.group_openid
+        request = event.model_dump()
+        if request.get("auto_approved"):
+            return  # 平台策略已自动通过，无需推送
+        approved = await _process_qq_join_request(bot, request, event.group_openid)
+        await _push_join_notice_qq(
+            bot, event.group_openid, format_join_request_notice(request, approved)
         )
