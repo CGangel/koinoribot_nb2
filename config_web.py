@@ -278,11 +278,7 @@ def panel_access_reply(uid: int) -> str:
     """根据统一 UID 生成“冰祈配置”的回复文案。"""
     level = su_manager.get_su_level(uid)
     if level == su_manager.SU_LEVEL_CONTRIBUTOR:
-        return (
-            f"配置面板：{panel_base_url()}\n"
-            f"访问密码见 koinoribot_nb2/passwd.py 的 PANEL_PASSWORD\n"
-            f"修改保存后立即生效（写入数据库并同步内存）"
-        )
+        return f"配置面板：{panel_base_url()}"
     if not owner_level_exists():
         return (
             "当前不存在等级为 0 的超级用户，无法使用配置面板。\n"
@@ -314,21 +310,29 @@ _PAGE_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Koinoribot 配置面板</title>
 <style>
+  * { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #222; }
   .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08);
           max-width: 780px; margin: 24px auto; padding: 20px 24px; }
   h1 { font-size: 20px; } h2 { font-size: 15px; margin: 18px 0 8px; color: #444;
           border-bottom: 1px solid #eee; padding-bottom: 4px; }
-  .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
-  .row label { flex: 0 0 260px; font-family: monospace; font-size: 13px; }
-  .row input { flex: 1; padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px;
+  .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; flex-wrap: wrap; }
+  .row label { flex: 1 1 100%; min-width: 0; font-family: monospace; font-size: 13px;
+               word-break: break-all; }
+  .row input { flex: 1 1 100%; min-width: 0; width: 100%; padding: 5px 8px;
+               border: 1px solid #ccc; border-radius: 6px;
                font-family: monospace; font-size: 13px; }
+  @media (min-width: 640px) {
+    .row label { flex: 0 0 260px; }
+    .row input { flex: 1 1 auto; width: auto; }
+  }
   .tag { font-size: 11px; color: #888; }
-  #bar { display: flex; gap: 12px; align-items: center; }
+  .hint { font-size: 12px; color: #888; margin: 8px 0; word-break: break-all; }
+  #bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   button { padding: 6px 16px; border: 0; border-radius: 6px; background: #3b7ddd;
            color: #fff; cursor: pointer; }
   button.sec { background: #aaa; }
-  #msg { font-size: 13px; margin-left: 8px; }
+  #msg { font-size: 13px; margin-left: 8px; word-break: break-all; }
   .locked { display: none; }
 </style>
 </head>
@@ -336,10 +340,11 @@ _PAGE_HTML = """<!DOCTYPE html>
 <div class="card" id="login">
   <h1>Koinoribot 配置面板 · 登录</h1>
   <div class="row"><label>密码</label><input type="password" id="pwd"></div>
+  <div class="hint">访问密码见 koinoribot_nb2/passwd.py 的 PANEL_PASSWORD</div>
   <div id="bar"><button onclick="login()">登录</button><span id="msg"></span></div>
 </div>
 <div class="card locked" id="panel">
-  <h1>Koinoribot 配置面板 <span class="tag">修改保存后立即生效</span></h1>
+  <h1>Koinoribot 配置面板 <span class="tag">修改保存后立即生效（写入数据库并同步内存）</span></h1>
   <div id="bar">
     <button onclick="save()">保存修改</button>
     <button class="sec" onclick="load(true)">显示敏感值</button>
