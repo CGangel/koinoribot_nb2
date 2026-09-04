@@ -191,12 +191,13 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "ip_address": "本机公网 IP（云 bot 模式必填；也用于冰祈配置回复的面板地址）",
 }
 
-# 面板展示时需要打码的字段（含 key/secret/appkey 的敏感项）
-_SECRET_FIELD_HINTS = ("key", "secret")
+# 面板展示时需要打码的字段（仅 API Key 类；显式清单，避免 join_request_keywords
+# 等含 "key" 字样的普通字段被误伤）
+_SECRET_FIELDS = {"deepseek_api_key", "gpt_image_api_key"}
 
 
 def is_secret_field(name: str) -> bool:
-    return any(hint in name.lower() for hint in _SECRET_FIELD_HINTS)
+    return name in _SECRET_FIELDS
 
 
 def mask_value(value: Any) -> str:
