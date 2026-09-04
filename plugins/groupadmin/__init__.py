@@ -1,32 +1,34 @@
-"""群管理子插件（初步）：入群申请自动审批。
+"""群管理子插件（初步）：入群申请自动审批（事件驱动）。
 
-QQBot 侧：官Bot 在适配器 1.7.2 下没有入群申请推送事件，采用定时轮询
-（默认 60 秒）。群 openid 从群消息事件自动收集（openid 按 bot 隔离）；
-拉取列表、审批接口均要求 bot 为群管理员，身份不满足时跳过该群。
+QQBot 侧：GROUP_JOIN_REQUEST 推送事件（mlbot 根目录 qq_bot_api_patch.py
+注册的本地补丁，需 .env QQ_BOTS.intent 开启 "group_members": true）。
+按官方文档，查询申请列表与事件推送都要求 bot 为群管理员，因此能收到
+事件即已具备管理员身份，无需再二次校验。
 
-OneBot 侧：GroupRequestEvent 请求事件实时推送，命中规则即时审批。
+OneBot 侧：GroupRequestEvent 请求事件实时推送；平台无管理员保证，
+审批前用 get_group_member_info 校验 bot 是否为管理员/群主。
 
-放行规则（两端一致）：开关开启 + 验证内容（验证消息/问答答案）命中
-任一关键词 + bot 为该群管理员/群主。
+放行规则：
+1. 自动审批开关开启，且关键词列表非空；
+2. 发起审批的 bot 在允许列表中（join_request_bots，可填 QQ 号或官Bot
+   appid）：OneBot 的 self_id 即 QQ 号直接比对；官Bot 的 appid 直接
+   比对，或经 join_request_bot_qq 绑定的 QQ 号比对（appid 在 bot
+   连接时自动登记，只需补填 QQ 号）；
+3. 验证内容（验证消息/问答答案）命中任一关键词。
 
-配置见 8889 面板“群管理”分区：
-- join_request_auto_approve  自动审批开关
-- join_request_keywords      关键词列表
+配置见 8889 面板“群管理”分区。
 """
 
-from nonebot import get_bots, logger, on_notice, require
+import nonebot
+from nonebot import logger, on_notice
 from nonebot.adapters import Bot, Event
 from nonebot.adapters import qq
-from nonebot.message import event_preprocessor
 
 import nonebot.adapters.onebot.v11 as onebot
+from ... import config_store
 from ...config_store import config as koinori_config
 from ... import tools
 
-POLL_INTERVAL_SECONDS = 60
-
-# 群消息事件自动收集的群（openid 按 bot 隔离）：bot self_id -> {group_openid}
-_known_groups: dict[str, set[str]] = {}
 # 已处理过的申请，避免重复审批
 _processed_requests: set[str] = set()
 
@@ -57,26 +59,58 @@ def is_admin_role(role) -> bool:
     return role in ("admin", "owner")
 
 
-# ================== QQBot 侧：轮询审批 ==================
+def _allowed_bot_ids() -> set[str]:
+    """允许自动审批的 bot 标识集合（QQ 号或官Bot appid，字符串化统一比对）。"""
+    return {str(entry) for entry in koinori_config.join_request_bots}
 
 
-@event_preprocessor
-async def _track_qq_groups(event: Event, bot: Bot):
-    """从群消息事件自动收集需要轮询的群 openid。"""
+def _auto_approve_enabled() -> bool:
+    return bool(
+        koinori_config.join_request_auto_approve
+        and koinori_config.join_request_keywords
+        and koinori_config.join_request_bots
+    )
+
+
+def qqbot_allowed(bot) -> bool:
+    """官Bot 是否在自动审批允许列表（appid 直接命中，或绑定的 QQ 号命中）。"""
+    allowed = _allowed_bot_ids()
+    if bot.self_id in allowed:
+        return True
+    bound_qq = koinori_config.join_request_bot_qq.get(bot.self_id)
+    return bool(bound_qq) and str(bound_qq) in allowed
+
+
+def onebot_allowed(bot) -> bool:
+    """OneBot 的 self_id 即 QQ 号，直接比对白名单。"""
+    return str(bot.self_id) in _allowed_bot_ids()
+
+
+# ================== 官Bot appid 自动登记 ==================
+
+
+async def register_qqbot_appid(bot: Bot):
+    """bot 连接时把官Bot appid 自动登记进 join_request_bot_qq，用户只需补填 QQ 号。"""
     if not isinstance(bot, qq.Bot):
         return
-    group_openid = getattr(event, "group_openid", None)
-    if group_openid:
-        _known_groups.setdefault(bot.self_id, set()).add(group_openid)
-
-
-async def _bot_is_group_admin(bot, group_openid: str) -> bool:
+    mapping = {str(k): v for k, v in koinori_config.join_request_bot_qq.items()}
+    if bot.self_id in mapping:
+        return
+    mapping[bot.self_id] = ""
     try:
-        state = await bot.get_group_bot_state(group_id=group_openid)
+        config_store.update_config({"join_request_bot_qq": mapping})
+        logger.info(
+            f"[groupadmin] 已自动登记官Bot appid {bot.self_id}，"
+            "请在面板 join_request_bot_qq 中填写其对应 QQ 号"
+        )
     except Exception as e:
-        logger.debug(f"[groupadmin] 查询bot群身份失败（视为非管理员）: {e}")
-        return False
-    return is_admin_role(state.member_role)
+        logger.warning(f"[groupadmin] 登记官Bot appid 失败: {e}")
+
+
+nonebot.get_driver().on_bot_connect(register_qqbot_appid)
+
+
+# ================== QQBot 侧：入群申请推送事件审批 ==================
 
 
 def _remember_processed(request_id: str) -> None:
@@ -87,86 +121,68 @@ def _remember_processed(request_id: str) -> None:
     _processed_requests.add(request_id)
 
 
-async def process_pending_requests(bot) -> list[str]:
-    """拉取并审批单个 QQBot 全部已知群的入群申请，返回放行的申请标识列表。"""
-    if not koinori_config.join_request_auto_approve:
-        return []
-    keywords = koinori_config.join_request_keywords
-    if not keywords:
-        return []
+async def _process_qq_join_request(bot, request: dict, group_openid: str) -> bool:
+    """QQ 入群申请审批核心。request 为 JoinRequest.model_dump() 等价 dict。
 
-    approved: list[str] = []
-    for group_openid in _known_groups.get(bot.self_id, ()):
-        try:
-            result = await bot.get_group_join_request_list(group_id=group_openid)
-        except Exception as e:
-            # 列表接口要求群管理员；无权限/临时故障的群静默跳过
-            logger.debug(f"[groupadmin] 拉取入群申请失败（跳过该群）: {e}")
-            continue
-
-        hits = [
-            request
-            for request in (r.model_dump() for r in result.requests)
-            if keyword_hit(request, keywords)
-            and (request.get("join_request_id") or "") not in _processed_requests
-        ]
-        if not hits:
-            continue
-
-        if not await _bot_is_group_admin(bot, group_openid):
-            logger.info(
-                f"[groupadmin] 群 {group_openid} 有命中关键词的入群申请，"
-                "但bot不是管理员，跳过自动放行"
-            )
-            continue
-
-        for request in hits:
-            request_id = request.get("join_request_id") or ""
-            member_openid = request.get("member_openid") or ""
-            ok = await tools.approve_group_join_request(
-                bot,
-                True,
-                group_openid=group_openid,
-                member_openid=member_openid,
-                join_request_id=request_id,
-            )
-            if ok:
-                _remember_processed(request_id)
-                approved.append(request_id or member_openid)
-                logger.info(
-                    f"[groupadmin] 已自动放行入群申请："
-                    f"{request.get('username') or member_openid} -> {group_openid}"
-                )
-    return approved
-
-
-try:
-    scheduler = require("nonebot_plugin_apscheduler").scheduler
-
-    @scheduler.scheduled_job(
-        "interval",
-        seconds=POLL_INTERVAL_SECONDS,
-        id="groupadmin_join_request_poll",
-        misfire_grace_time=30,
+    官方文档明确查询申请列表与事件推送均要求 bot 为群管理员，
+    能收到事件即已具备管理员身份，不再二次校验。
+    """
+    if not _auto_approve_enabled():
+        return False
+    if not qqbot_allowed(bot):
+        return False
+    if request.get("auto_approved"):
+        return False  # 平台策略已自动通过，无需处理
+    request_id = request.get("join_request_id") or ""
+    if request_id and request_id in _processed_requests:
+        return False
+    member_openid = request.get("member_openid") or ""
+    if not member_openid:
+        return False
+    if not keyword_hit(request, koinori_config.join_request_keywords):
+        return False
+    ok = await tools.approve_group_join_request(
+        bot,
+        True,
+        group_openid=group_openid,
+        member_openid=member_openid,
+        join_request_id=request_id,
     )
-    async def _poll_join_requests():
-        for bot in get_bots().values():
-            if isinstance(bot, qq.Bot):
-                try:
-                    await process_pending_requests(bot)
-                except Exception as e:
-                    logger.debug(f"[groupadmin] 入群申请轮询异常: {e}")
+    if ok:
+        _remember_processed(request_id)
+        logger.info(
+            f"[groupadmin] 已自动放行入群申请："
+            f"{request.get('username') or member_openid} -> {group_openid}"
+        )
+    return ok
 
-except Exception as e:
-    logger.warning(
-        f"[groupadmin] 入群申请轮询任务注册失败（需要 nonebot_plugin_apscheduler）: {e}"
-    )
+
+def _qq_join_request_event_cls():
+    """GROUP_JOIN_REQUEST 事件类：优先适配器原生（发版后），回退本地补丁。"""
+    try:
+        from nonebot.adapters.qq.event import GroupJoinRequestEvent
+    except ImportError:
+        from qq_bot_api_patch import GroupJoinRequestEvent
+    return GroupJoinRequestEvent
+
+
+qq_join_request = on_notice(priority=5, block=False)
+
+
+@qq_join_request.handle()
+async def handle_qq_join_request(bot: Bot, event: Event):
+    if not isinstance(bot, qq.Bot):
+        return
+    if not isinstance(event, _qq_join_request_event_cls()):
+        return
+    await _process_qq_join_request(bot, event.model_dump(), event.group_openid)
 
 
 # ================== OneBot 侧：请求事件实时审批 ==================
 
 
 async def _ob_bot_is_group_admin(bot: onebot.Bot, group_id: int) -> bool:
+    """查 bot 在 OneBot 群内的身份（role: owner/admin/member）。"""
     try:
         info = await bot.get_group_member_info(
             group_id=group_id, user_id=int(bot.self_id)
@@ -184,7 +200,9 @@ ob_group_request = on_notice(priority=5, block=False)
 async def handle_ob_group_request(
     bot: onebot.Bot, event: onebot.GroupRequestEvent
 ):
-    if not koinori_config.join_request_auto_approve:
+    if not _auto_approve_enabled():
+        return
+    if not onebot_allowed(bot):
         return
     if event.sub_type != "add":
         return

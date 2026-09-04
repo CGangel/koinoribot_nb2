@@ -310,54 +310,144 @@ _PAGE_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Koinoribot 配置面板</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #222; }
-  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08);
-          max-width: 780px; margin: 24px auto; padding: 20px 24px; }
-  h1 { font-size: 20px; } h2 { font-size: 15px; margin: 18px 0 8px; color: #444;
-          border-bottom: 1px solid #eee; padding-bottom: 4px; }
-  .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; flex-wrap: wrap; }
-  .row label { flex: 1 1 100%; min-width: 0; font-family: monospace; font-size: 13px;
-               word-break: break-all; }
-  .row input { flex: 1 1 100%; min-width: 0; width: 100%; padding: 5px 8px;
-               border: 1px solid #ccc; border-radius: 6px;
-               font-family: monospace; font-size: 13px; }
-  @media (min-width: 640px) {
-    .row label { flex: 0 0 260px; }
-    .row input { flex: 1 1 auto; width: auto; }
+  :root {
+    --bg: #eef1f6; --card: #fff; --ink: #1c2333; --sub: #6b7385;
+    --line: #e3e7ef; --accent: #3b7ddd; --accent-ink: #fff;
+    --ok: #2e9e5b; --warn: #d8643f; --chip: #f0f3f9;
+    --radius: 12px; --shadow: 0 1px 3px rgba(24, 34, 62, .08);
   }
-  .tag { font-size: 11px; color: #888; }
-  .desc { display: block; font-family: system-ui, sans-serif; font-size: 11px;
-          color: #999; margin-top: 2px; }
-  .hint { font-size: 12px; color: #888; margin: 8px 0; word-break: break-all; }
-  #bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  button { padding: 6px 16px; border: 0; border-radius: 6px; background: #3b7ddd;
-           color: #fff; cursor: pointer; }
-  button.sec { background: #aaa; }
-  #msg { font-size: 13px; margin-left: 8px; word-break: break-all; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 0; background: var(--bg); color: var(--ink); }
+  .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+          margin: 16px auto; padding: 18px 20px; }
+  #login-card { max-width: 380px; margin-top: 12vh; text-align: center; }
+  #login-card h1 { font-size: 18px; margin: 4px 0 2px; }
+  #login-card .sub { color: var(--sub); font-size: 12px; margin-bottom: 6px; }
+  .logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg,#5b9cf5,#3b7ddd);
+          color: #fff; font-size: 22px; line-height: 44px; margin: 0 auto 8px; }
+  .pwdwrap { position: relative; margin: 10px 0 14px; }
+  .pwdwrap input { width: 100%; padding: 10px 44px 10px 12px; border: 1px solid var(--line);
+                   border-radius: 8px; font-size: 14px; outline: none; }
+  .pwdwrap input:focus { border-color: var(--accent); }
+  .pwdwrap button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+                    border: 0; background: none; cursor: pointer; color: var(--sub); font-size: 15px; }
+  button { border: 0; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .btn { padding: 9px 22px; background: var(--accent); color: var(--accent-ink); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.sec { background: var(--chip); color: var(--ink); }
+
+  #wrap { max-width: 860px; padding: 0 12px 90px; }
+  .topbar { position: sticky; top: 10px; z-index: 20; display: flex; gap: 10px;
+            align-items: center; flex-wrap: wrap; padding: 12px 18px; }
+  .topbar h1 { font-size: 16px; margin: 0; flex: 1; }
+  .topbar h1 .tag { font-size: 11px; color: var(--sub); font-weight: normal; margin-left: 8px; }
+  #msg { font-size: 12px; color: var(--warn); word-break: break-all; }
+
+  .section h2 { font-size: 13px; color: var(--sub); font-weight: 600; letter-spacing: .5px;
+                margin: 4px 2px 10px; }
+  .field { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0;
+           transition: border-color .15s, box-shadow .15s; }
+  .field.changed { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,125,221,.14); }
+  .field .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 7px; }
+  .field .name { font-family: ui-monospace, Consolas, monospace; font-size: 13px; font-weight: 600; }
+  .chip { font-size: 10px; color: var(--sub); background: var(--chip); border-radius: 5px; padding: 1px 7px; }
+  .chip.secret { color: var(--warn); background: #fdeeea; }
+  .field .desc { font-size: 11.5px; color: var(--sub); margin-top: 3px; line-height: 1.5; }
+
+  input[type=text], input[type=number] { padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 8px; font-size: 13px; font-family: ui-monospace, Consolas, monospace;
+    outline: none; min-width: 0; width: 100%; transition: border-color .15s; }
+  input:focus { border-color: var(--accent); }
+
+  .switch { position: relative; display: inline-block; width: 46px; height: 25px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .track { position: absolute; inset: 0; background: #cdd4e0; border-radius: 999px;
+                   transition: .18s; cursor: pointer; }
+  .switch .track:before { content: ""; position: absolute; height: 19px; width: 19px; left: 3px;
+                          top: 3px; background: #fff; border-radius: 50%; transition: .18s;
+                          box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch input:checked + .track { background: var(--ok); }
+  .switch input:checked + .track:before { transform: translateX(21px); }
+  .boolrow { display: flex; align-items: center; gap: 10px; }
+  .boolrow .state { font-size: 12px; color: var(--sub); min-width: 3em; }
+  .boolrow .state.on { color: var(--ok); font-weight: 600; }
+
+  .items .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+  .items .row input { flex: 1; }
+  .kv .row { display: grid; grid-template-columns: minmax(90px, 38%) auto minmax(90px, 1fr) 30px;
+             gap: 6px; align-items: center; margin: 6px 0; }
+  .kv .arrow { color: var(--sub); font-size: 12px; }
+  .del { width: 28px; height: 28px; border-radius: 7px; background: var(--chip); color: var(--sub);
+         font-size: 14px; flex: none; }
+  .del:hover { background: #fdeeea; color: var(--warn); }
+  .add { margin-top: 7px; padding: 6px 14px; background: var(--chip); color: var(--accent);
+         font-weight: 600; }
+  .add:hover { background: #e3ecfb; }
+  .empty-tip { font-size: 12px; color: var(--sub); padding: 4px 2px; }
+
+  .savebar { position: fixed; left: 12px; right: 12px; bottom: 0; z-index: 30;
+             display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+             border-radius: var(--radius) var(--radius) 0 0; }
+  .savebar .count { font-size: 13px; color: var(--sub); flex: 1; }
+  .savebar .count b { color: var(--accent); font-size: 16px; margin: 0 3px; }
   .locked { display: none; }
+  @media (max-width: 640px) {
+    .kv .row { grid-template-columns: 1fr 1fr; }
+    .kv .arrow { display: none; }
+  }
 </style>
 </head>
 <body>
-<div class="card" id="login">
-  <h1>Koinoribot 配置面板 · 登录</h1>
-  <div class="row"><label>密码</label><input type="password" id="pwd"></div>
-  <div class="hint">访问密码见 koinoribot_nb2/passwd.py 的 PANEL_PASSWORD</div>
-  <div id="bar"><button onclick="login()">登录</button><span id="msg"></span></div>
+
+<div class="card locked" id="login-card">
+  <div class="logo">祈</div>
+  <h1>Koinoribot 配置面板</h1>
+  <div class="sub">访问密码见 koinoribot_nb2/passwd.py 的 PANEL_PASSWORD</div>
+  <div class="pwdwrap">
+    <input type="password" id="pwd" placeholder="面板密码" autocomplete="current-password">
+    <button type="button" id="pwdEye" title="显示/隐藏密码">👁</button>
+  </div>
+  <div><button class="btn" style="width:100%" onclick="login()">登 录</button></div>
+  <div id="msg" style="margin-top:10px"></div>
 </div>
-<div class="card locked" id="panel">
-  <h1>Koinoribot 配置面板 <span class="tag">修改保存后立即生效（写入数据库并同步内存）</span></h1>
-  <div id="bar">
-    <button onclick="save()">保存修改</button>
-    <button class="sec" id="revealBtn" onclick="toggleSecret()">显示敏感值</button>
-    <button class="sec" onclick="logout()">退出</button>
-    <span id="msg"></span>
+
+<div id="wrap" class="locked">
+  <div class="topbar card">
+    <h1>Koinoribot 配置面板<span class="tag">修改保存后立即生效（写入数据库并同步内存）</span></h1>
+    <button class="btn sec" id="revealBtn" onclick="toggleSecret()">显示敏感值</button>
+    <button class="btn sec" onclick="load()">重置</button>
+    <button class="btn sec" onclick="logout()">退出</button>
   </div>
   <div id="sections"></div>
+  <div id="msg2" class="card locked" style="padding:10px 18px"></div>
 </div>
+
+<div class="savebar card locked" id="savebar">
+  <span class="count" id="count">未修改</span>
+  <button class="btn sec" onclick="load()">放弃修改</button>
+  <button class="btn" id="saveBtn" onclick="save()">保存修改</button>
+</div>
+
 <script>
 let data = {sections: {}};
 let revealed = false;
+let fieldMeta = {};   // key -> field（类型/原始值/打码标记）
+const byId = k => document.getElementById('f_' + k);
+
+function show(on) {
+  document.getElementById('login-card').classList.toggle('locked', on);
+  document.getElementById('wrap').classList.toggle('locked', !on);
+  document.getElementById('savebar').classList.toggle('locked', !on);
+}
+
+function flash(msg, isErr) {
+  const el = document.getElementById('msg2');
+  el.classList.remove('locked');
+  el.style.color = isErr ? 'var(--warn)' : 'var(--ok)';
+  el.textContent = msg;
+  setTimeout(() => el.classList.add('locked'), 5000);
+}
 
 async function login() {
   const msg = document.getElementById('msg');
@@ -368,80 +458,233 @@ async function login() {
   if (r.ok) { load(); } else { msg.textContent = j.error || '登录失败'; }
 }
 
+document.getElementById('pwdEye').onclick = () => {
+  const el = document.getElementById('pwd');
+  el.type = el.type === 'password' ? 'text' : 'password';
+};
+document.getElementById('pwd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+
 function toggleSecret() { load(!revealed); }
 
 async function load(reveal) {
-  // 不传参时保持当前显示状态（保存后刷新用）
   if (reveal === undefined) reveal = revealed;
   const r = await fetch('/api/config' + (reveal ? '?reveal=1' : ''));
   if (r.status === 401) { show(false); return; }
   data = await r.json();
   revealed = reveal;
+  fieldMeta = {};
+  for (const fields of Object.values(data.sections)) for (const f of fields) fieldMeta[f.key] = f;
   document.getElementById('revealBtn').textContent = revealed ? '隐藏敏感值' : '显示敏感值';
-  render(); show(true);
+  render();
+  show(true);
 }
 
-function show(on) {
-  document.getElementById('login').classList.toggle('locked', on);
-  document.getElementById('panel').classList.toggle('locked', !on);
+// ================== 渲染 ==================
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function numberTypeOf(items) {
+  return items.length && items.every(x => typeof x === 'number') ? 'number' : 'string';
 }
 
 function render() {
-  const root = document.getElementById('sections'); root.innerHTML = '';
-    for (const [section, fields] of Object.entries(data.sections)) {
-    const h = document.createElement('h2'); h.textContent = section; root.appendChild(h);
-    for (const f of fields) {
-      const row = document.createElement('div'); row.className = 'row';
-      const label = document.createElement('label');
-      label.appendChild(document.createTextNode(f.key + ' '));
-      const tag = document.createElement('span'); tag.className = 'tag';
-      tag.textContent = f.type + (f.masked ? ' ·已打码' : '');
-      label.appendChild(tag);
-      if (f.desc) {
-        const desc = document.createElement('span'); desc.className = 'desc';
-        desc.textContent = f.desc;
-        label.appendChild(desc);
-      }
-      const input = document.createElement('input');
-      input.id = 'f_' + f.key;
-      input.dataset.type = f.type;
-      let value = (f.type === 'list' || f.type === 'dict')
-        ? JSON.stringify(f.value, null, 0) : String(f.value);
-      input.value = value;
-      row.appendChild(label); row.appendChild(input); root.appendChild(row);
-    }
+  const root = document.getElementById('sections');
+  root.innerHTML = '';
+  for (const [section, fields] of Object.entries(data.sections)) {
+    const card = el('div', 'card section');
+    card.appendChild(el('h2', null, section));
+    for (const f of fields) card.appendChild(renderField(f));
+    root.appendChild(card);
   }
+  refreshDirty();
+}
+
+function renderField(f) {
+  const box = el('div', 'field');
+  box.id = 'box_' + f.key;
+
+  const head = el('div', 'head');
+  head.appendChild(el('span', 'name', f.key));
+  head.appendChild(el('span', 'chip' + (f.masked ? ' secret' : ''),
+                      f.type + (f.masked ? ' · 已打码' : '')));
+  box.appendChild(head);
+  if (f.desc) box.appendChild(el('div', 'desc', f.desc));
+
+  if (f.type === 'bool') box.appendChild(renderBool(f));
+  else if (f.type === 'list') box.appendChild(renderList(f));
+  else if (f.type === 'dict') box.appendChild(renderDict(f));
+  else box.appendChild(renderScalar(f));
+  return box;
+}
+
+function renderBool(f) {
+  const row = el('div', 'boolrow');
+  const sw = el('label', 'switch');
+  const input = document.createElement('input');
+  input.type = 'checkbox'; input.id = 'f_' + f.key; input.checked = !!f.value;
+  const track = el('span', 'track');
+  sw.append(input, track);
+  const state = el('span', 'state' + (f.value ? ' on' : ''), f.value ? '已开启' : '已关闭');
+  input.addEventListener('change', () => {
+    state.textContent = input.checked ? '已开启' : '已关闭';
+    state.classList.toggle('on', input.checked);
+    refreshDirty();
+  });
+  row.append(sw, state);
+  return row;
+}
+
+function renderScalar(f) {
+  const input = document.createElement('input');
+  input.id = 'f_' + f.key;
+  input.type = f.type === 'int' || f.type === 'float' ? 'number' : 'text';
+  if (f.type === 'float') input.step = 'any';
+  if (f.type === 'int') input.step = '1';
+  if (f.masked) { input.placeholder = f.value; input.value = ''; }
+  else input.value = String(f.value);
+  input.addEventListener('input', refreshDirty);
+  return input;
+}
+
+function renderList(f) {
+  const wrap = el('div', 'items');
+  wrap.id = 'f_' + f.key;
+  const defType = numberTypeOf(f.value || []);
+
+  function addRow(value, etype) {
+    const row = el('div', 'row');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.dataset.etype = etype;
+    if (value !== undefined) input.value = String(value);
+    const del = el('button', 'del', '✕');
+    del.onclick = () => { row.remove(); refreshDirty(); };
+    row.append(input, del);
+    wrap.appendChild(row);
+    input.addEventListener('input', refreshDirty);
+    return input;
+  }
+
+  const items = Array.isArray(f.value) ? f.value : [];
+  if (!items.length) wrap.appendChild(el('div', 'empty-tip', '（空列表）'));
+  items.forEach(v => addRow(v, typeof v === 'number' ? 'number' : 'string'));
+  const add = el('button', 'add', '+ 添加一项');
+  add.onclick = () => {
+    const tip = wrap.querySelector('.empty-tip');
+    if (tip) tip.remove();
+    addRow(undefined, defType).focus();
+    refreshDirty();
+  };
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function renderDict(f) {
+  const wrap = el('div', 'kv');
+  wrap.id = 'f_' + f.key;
+  const entries = f.value && typeof f.value === 'object' ? Object.entries(f.value) : [];
+  const defType = numberTypeOf(entries.map(e => e[1]));
+
+  function addRow(k, v, etype) {
+    const row = el('div', 'row');
+    const keyIn = document.createElement('input');
+    keyIn.type = 'text'; keyIn.dataset.role = 'k'; keyIn.placeholder = '键';
+    const valIn = document.createElement('input');
+    valIn.type = 'text'; valIn.dataset.role = 'v'; valIn.dataset.etype = etype;
+    valIn.placeholder = '值';
+    if (k !== undefined) keyIn.value = String(k);
+    if (v !== undefined && v !== '') valIn.value = String(v);
+    const del = el('button', 'del', '✕');
+    del.onclick = () => { row.remove(); refreshDirty(); };
+    row.append(keyIn, el('span', 'arrow', '→'), valIn, del);
+    wrap.appendChild(row);
+    keyIn.addEventListener('input', refreshDirty);
+    valIn.addEventListener('input', refreshDirty);
+  }
+
+  if (!entries.length) wrap.appendChild(el('div', 'empty-tip', '（空）'));
+  entries.forEach(([k, v]) => addRow(k, v, typeof v === 'number' ? 'number' : 'string'));
+  const add = el('button', 'add', '+ 添加键值对');
+  add.onclick = () => {
+    const tip = wrap.querySelector('.empty-tip');
+    if (tip) tip.remove();
+    addRow(undefined, undefined, defType);
+    const rows = wrap.querySelectorAll('.row');
+    if (rows.length) rows[rows.length - 1].querySelector('[data-role=k]').focus();
+    refreshDirty();
+  };
+  wrap.appendChild(add);
+  return wrap;
+}
+
+// ================== 采集与保存 ==================
+
+function coerce(text, etype) { return etype === 'number' ? Number(text) : text; }
+
+function collect(f) {
+  if (f.type === 'bool') return byId(f.key).checked;
+  if (f.type === 'list') {
+    return Array.from(byId(f.key).querySelectorAll('.row input')).map(
+      input => coerce(input.value, input.dataset.etype));
+  }
+  if (f.type === 'dict') {
+    const obj = {};
+    byId(f.key).querySelectorAll('.row').forEach(row => {
+      const k = row.querySelector('[data-role=k]').value.trim();
+      if (!k) return;
+      const vIn = row.querySelector('[data-role=v]');
+      obj[k] = coerce(vIn.value, vIn.dataset.etype);
+    });
+    return obj;
+  }
+  const input = byId(f.key);
+  if (f.type === 'int') return parseInt(input.value, 10);
+  if (f.type === 'float') return parseFloat(input.value);
+  return input.value;
+}
+
+function isChanged(f) {
+  // 打码字符串：占位符即打码值，输入框留空表示未修改
+  if (f.masked && f.type === 'str') return byId(f.key).value !== '';
+  return JSON.stringify(collect(f)) !== JSON.stringify(f.value);
+}
+
+function changedKeys() {
+  return Object.values(fieldMeta).filter(isChanged).map(f => f.key);
+}
+
+function refreshDirty() {
+  const keys = changedKeys();
+  Object.values(fieldMeta).forEach(f => {
+    const box = document.getElementById('box_' + f.key);
+    if (box) box.classList.toggle('changed', keys.includes(f.key));
+  });
+  const count = document.getElementById('count');
+  const btn = document.getElementById('saveBtn');
+  if (!keys.length) { count.textContent = '未修改'; btn.disabled = true; }
+  else { count.innerHTML = '已修改 <b>' + keys.length + '</b> 项'; btn.disabled = false; }
 }
 
 async function save() {
-  const msg = document.getElementById('msg');
   const updates = {};
-  // 以当前渲染数据为对比基线：打码占位符未改动时不会被提交，避免覆盖真实密钥
-  for (const [section, fields] of Object.entries(data.sections)) {
-    for (const f of fields) {
-      const el = document.getElementById('f_' + f.key);
-      if (!el) continue;
-      let v = el.value;
-      if (f.type === 'int') v = parseInt(v, 10);
-      else if (f.type === 'float') v = parseFloat(v);
-      else if (f.type === 'bool') v = (v === 'true' || v === 'True' || v === '1');
-      else if (f.type === 'list' || f.type === 'dict') {
-        try { v = JSON.parse(v); } catch (e) { msg.textContent = section + '/' + f.key + ' 不是合法 JSON'; return; }
-      }
-      const origStr = (f.type === 'list' || f.type === 'dict')
-        ? JSON.stringify(f.value) : String(f.value);
-      const nowStr = (f.type === 'list' || f.type === 'dict')
-        ? JSON.stringify(v) : String(v);
-      if (nowStr !== origStr) updates[f.key] = v;
-    }
+  for (const f of Object.values(fieldMeta)) {
+    if (!isChanged(f)) continue;
+    updates[f.key] = collect(f);
   }
-  if (!Object.keys(updates).length) { msg.textContent = '没有修改'; return; }
+  if (!Object.keys(updates).length) { flash('没有修改'); return; }
   const r = await fetch('/api/config', {method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({updates})});
   const j = await r.json().catch(() => ({}));
-  msg.textContent = r.ok ? ('已更新: ' + j.updated.join(', ')) : (j.error || '保存失败');
-  if (r.ok) load();
+  if (r.ok) { flash('已更新: ' + j.updated.join(', ')); load(); }
+  else flash(j.error || '保存失败', true);
 }
 
 async function logout() {
