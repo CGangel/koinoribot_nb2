@@ -7,5 +7,5 @@
 PANEL_PASSWORD = "__RANDOM__"
 
 # 超级用户列表（等级 0 = 最高权限，可使用“冰祈配置”指令查看配置面板）
-# 值为统一 UID（与数据库 superusers 表的 uid 同一命名空间）
-SUPERUSERS = [10002, 10001]
+# 值为统一 UID，用,分隔（与数据库 superusers 表的 uid 同一命名空间）
+SUPERUSERS = [] #示例：[10001, 1002] 
