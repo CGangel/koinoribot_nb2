@@ -51,14 +51,14 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 常用配置项（均可通过面板修改）：
 
 - `qqbot_appid`、`qqbot_openid_api`：官方 QQBot 用户昵称/头像查询。
-- `send_forward`：是否启用合并转发消息。
 - `superusers`：最高权限 SU（等级 0）的统一 UID 列表，保存在 `passwd.py`，不在 config 表中。
 - `blackusers`：冻结用户 UID 列表。
 - `dibao`、`gold_max`、`transfer_fee`、`min_rest`：经济系统参数。
 - `cool_time`、`fish_cd`、`bait_price`、`bottle_price`、`comment_price`：钓鱼和漂流瓶参数。
+- `fish_list`、`fish_price`、`probability`：鱼种、鱼价与钓鱼结果权重，修改后立即生效。
 - `gpt_image_api_key`、`gpt_image_api_base_url`、`gpt_image_model`、`gpt_image_response_format`：AI 画图/修图接口配置；图片返回格式可设为 `url` 或 `base64`/`b64_json`。
 - `draw_cost`、`daily_limit`、`ai_draw_enable`、`enable_gold_aidraw`、`ai_draw_size`、`shaojo_image_size`、`aidraw_quality`、`aidraw_high_quality`：画图消耗、日限、开关、尺寸与质量。
-- `public_bot`、`permit_bot`、`permit_group`、`ip_address`：公网白名单模式配置。
+- `public_bot`、`permit_bot`、`ip_address`：公网白名单模式配置。
 
 数据会自动写入 `src/database/koinoribot.db`。图片、字体等静态资源位于 `src/img` 和 `src/fonts`。
 

@@ -11,16 +11,34 @@ from ...config_store import config
 from .util import DatabaseManager
 from .serif import GET_FISH_SERIF, NO_FISH_SERIF, COOL_TIME_SERIF
 from ...su_manager import is_su
-# ===== 常量配置 =====
-FISH_LIST = ['🐟', '🦐', '🦀', '🐡', '🐠', '🦈', '🌟']
-FISH_PRICE = {
-    '🍙': 1, '🐟': 5, '🦐': 10, '🦀': 35, 
+# ===== 配置读取（8889 面板可改，缺省/非法时回落默认值） =====
+_DEFAULT_FISH_LIST = ['🐟', '🦐', '🦀', '🐡', '🐠', '🦈', '🌟']
+_DEFAULT_FISH_PRICE = {
+    '🍙': 1, '🐟': 5, '🦐': 10, '🦀': 35,
     '🐡': 45, '🐠': 75, '🦈': 100, '🌟': 2000
 }
-# 概率配置 (没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心)
-PROBABILITY = (5, 10, 74, 10, 1)
-# 各种鱼上钩概率
+# 一级结果权重（没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心）
+_DEFAULT_PROBABILITY = (5, 10, 74, 10, 1)
+# 各种鱼上钩概率（已弃用配置化，硬编码；顺序对应 fish_list）
 PROBABILITY_2 = (25, 23, 20, 15, 9, 7, 1)
+
+
+def fish_list() -> list:
+    """鱼种列表（顺序对应 PROBABILITY_2 权重）"""
+    return config.fish_list or _DEFAULT_FISH_LIST
+
+
+def fish_price() -> dict:
+    """物品单价表"""
+    return config.fish_price or _DEFAULT_FISH_PRICE
+
+
+def probability() -> tuple:
+    """一级结果权重，需恰好 5 份，否则回落默认值"""
+    weights = config.probability
+    if len(weights) == 5:
+        return tuple(weights)
+    return _DEFAULT_PROBABILITY
 
 # 默认用户背包
 DEFAULT_INFO = {
@@ -31,12 +49,14 @@ DEFAULT_INFO = {
 
 
 def _select_fish(second_choose: int) -> str:
+    fish_kinds = fish_list()
     probability_sum = 0
-    for index, probability in enumerate(PROBABILITY_2):
-        probability_sum += probability * 10
+    for index, weight in enumerate(PROBABILITY_2):
+        probability_sum += weight * 10
         if second_choose <= probability_sum:
-            return FISH_LIST[index]
-    return FISH_LIST[0]
+            # 配置的鱼种数少于权重数时循环映射，避免越界
+            return fish_kinds[index % len(fish_kinds)]
+    return fish_kinds[0]
 
 
 def _lucky_gold_reward(value: int, actual_cost: int, times: int) -> int:
@@ -218,17 +238,18 @@ class FishingManager:
             user_info = await cls.get_user_info(uid)
         
         first_choose = random.randint(1, 1000)
+        weights = probability()
         if skip_random_events:
-            fish_start = (PROBABILITY[0] + PROBABILITY[1]) * 10
-            fish_end = fish_start + PROBABILITY[2] * 10
+            fish_start = (weights[0] + weights[1]) * 10
+            fish_end = fish_start + weights[2] * 10
             if fish_start < first_choose <= fish_end:
                 return await cls._catch_fish(uid, user_info)
             return {'code': 1, 'msg': random.choice(NO_FISH_SERIF)}
 
-        empty_end = PROBABILITY[0] * 10
-        event_end = empty_end + PROBABILITY[1] * 10
-        fish_end = event_end + PROBABILITY[2] * 10
-        coin_end = fish_end + PROBABILITY[3] * 10
+        empty_end = weights[0] * 10
+        event_end = empty_end + weights[1] * 10
+        fish_end = event_end + weights[2] * 10
+        coin_end = fish_end + weights[3] * 10
         if first_choose <= empty_end:
             return {'code': 1, 'msg': random.choice(NO_FISH_SERIF)}
         if first_choose <= event_end:
@@ -245,9 +266,10 @@ class FishingManager:
     def cal_all_fish_value(cls, result: Dict[str, int]) -> int:
         """计算所有鱼的总价值"""
         total_value = 0
+        price_table = fish_price()
         for fish, count in result.items():
-            if fish in FISH_PRICE:
-                total_value += count * FISH_PRICE[fish]
+            if fish in price_table:
+                total_value += count * price_table[fish]
         return total_value
 
     @classmethod
@@ -331,7 +353,7 @@ class FishingManager:
             if response["code"] != 1:
                 continue
             fish = next(
-                (item for item in FISH_LIST if item in response["msg"]),
+                (item for item in fish_list() if item in response["msg"]),
                 None,
             )
             if fish:

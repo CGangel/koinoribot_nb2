@@ -34,28 +34,9 @@ DEFAULT_DB_PATH = _PLUGIN_DIR / "src" / "database" / "koinoribot.db"
 class KoinoribotConfig(BaseModel):
     """Koinoribot 全局配置（superusers 除外，见 passwd.py）"""
 
-    # ================== 群聊管理 ==================
-    white_list_group: int = 1027790249      # 白名单群聊
-    group_auto_approve: bool = False        # 是否自动同意进群
-    friend_auto_approve: bool = False       # 是否自动同意好友邀请
-    star_cost_mode: bool = False            # 是否需要消耗星星来获得bot好友
-
-    send_forward: bool = True               # 是否启用合并转发
-
-    # ================== 腾讯 API ==================
-    tx_secret_id: str = ""
-    tx_secret_key: str = ""
-
     # ================== 官Bot AppID ==================
     qqbot_appid: str = ""                                              # 官方Bot AppID，用于通过 openid 获取用户昵称和头像
     qqbot_openid_api: str = "https://oiapi.net/api/Openid"            # OpenID 查询 API 地址
-
-    # ================== 天行 API ==================
-    tianxing_apikey: str = ""
-
-    # ================== 有道翻译 API ==================
-    youdao_appkey: str = ""
-    youdao_secret: str = ""
 
     # ================== 钓鱼配置 ==================
     cool_time: int = 100                    # 单抽钓鱼冷却时长
@@ -71,30 +52,15 @@ class KoinoribotConfig(BaseModel):
     crystal_to_bottle: int = 1              # 水之心转化为漂流瓶的数量
     crystal_to_net: int = 1                 # 捞漂流瓶需要的水之心数量
     fish_limit_count: int = 10000           # 每日最大钓鱼次数
-    admin_group: int = 348831286            # 漂流瓶审核群
 
-    # 鱼的配置
+    # 鱼的配置（getfish.py 运行时读取）
     fish_list: list = ['🐟', '🦐', '🦀', '🐡', '🐠', '🦈', '🌟']
     fish_price: dict = {
         '🍙': 1, '🐟': 5, '🦐': 10, '🦀': 35,
         '🐡': 45, '🐠': 75, '🦈': 100, '🌟': 2000
     }
-    # 钓鱼概率 (没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心)
-    probability: list = [(10, 5, 74, 10, 1)]
-    # 各种鱼上钩概率
-    probability_2: list = [(25, 23, 20, 15, 9, 7, 1)]
-
-    # ================== 萝莉/Boss 配置 ==================
-    maxhp: int = 10000                      # 萝莉初始血量
-    lowdamage: int = 1000                   # 捉萝莉伤害下限
-    highdamage: int = 2000                  # 捉萝莉伤害上限
-    loliprice: int = 1000                   # 捉萝莉消耗的鱼饵
-    miss: float = 0.5                       # miss 概率
-    bbjb: float = 0.5                       # miss 后爆用户金币的概率
-    bjb: float = 0.5                        # 爆萝莉金币的概率
-    xinyun_bjb: float = 0.03                # 幸运大奖概率
-    jishagold: int = 10000                  # 击杀奖励
-    bosstime: int = 2                       # Boss战模式
+    # 钓鱼结果权重（没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心），需恰好 5 份
+    probability: list = [5, 10, 74, 10, 1]
 
     # ================== 经济系统 ==================
     min_rest: int = 1000                    # 转账后最少剩余金币
@@ -126,12 +92,6 @@ class KoinoribotConfig(BaseModel):
     # ================== 其他配置 ==================
     star_price: int = 0                     # 多连钓鱼是否消耗星星
     extra_gold: int = 1                     # 钓鱼补贴开关
-    abilityfee: int = 100                   # 生成超能力所需金币
-
-    # 调试模式
-    debug_mode: bool = False
-    freeze_fc: int = 75
-    freeze_sc: int = 950
 
     # 黑名单用户
     blackusers: list = []
@@ -139,30 +99,18 @@ class KoinoribotConfig(BaseModel):
     # 公网白名单模式
     public_bot: bool = False                 # 是否启用云bot模式
     permit_bot: list = []                   # 自己的bot账号列表（如果上面一项为True，则此项必填）
-    permit_group: list = []                 # 允许领养云冰祈的群聊
     ip_address: str = ""                    # 本机公网ip地址（公网白名单模式下必填）
 
 
 # 面板分组（顺序即展示顺序）
 _FIELD_SECTIONS: dict[str, list[str]] = {
-    "群聊管理": [
-        "white_list_group", "group_auto_approve", "friend_auto_approve",
-        "star_cost_mode", "send_forward",
-    ],
-    "腾讯 API": ["tx_secret_id", "tx_secret_key"],
     "官Bot AppID": ["qqbot_appid", "qqbot_openid_api"],
-    "天行 API": ["tianxing_apikey"],
-    "有道翻译 API": ["youdao_appkey", "youdao_secret"],
     "钓鱼配置": [
         "cool_time", "fish_cd", "throw_cool_time", "salvage_cool_time",
         "comment_cool_time", "bait_num", "bait_price", "bottle_price",
         "comment_price", "frag_to_crystal", "crystal_to_bottle",
-        "crystal_to_net", "fish_limit_count", "admin_group",
-        "fish_list", "fish_price", "probability", "probability_2",
-    ],
-    "萝莉/Boss 配置": [
-        "maxhp", "lowdamage", "highdamage", "loliprice", "miss", "bbjb",
-        "bjb", "xinyun_bjb", "jishagold", "bosstime",
+        "crystal_to_net", "fish_limit_count", "fish_list", "fish_price",
+        "probability",
     ],
     "经济系统": [
         "min_rest", "dibao", "gold_max", "transfer_fee", "stone_fee",
@@ -175,32 +123,15 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "daily_limit", "ai_draw_enable", "ai_draw_size", "shaojo_image_size",
         "aidraw_quality", "aidraw_high_quality", "enable_gold_aidraw",
     ],
-    "其他配置": [
-        "star_price", "extra_gold", "abilityfee", "debug_mode",
-        "freeze_fc", "freeze_sc", "blackusers",
-    ],
-    "公网白名单模式": ["public_bot", "permit_bot", "permit_group", "ip_address"],
+    "其他配置": ["star_price", "extra_gold", "blackusers"],
+    "公网白名单模式": ["public_bot", "permit_bot", "ip_address"],
 }
 
 # 面板字段中文说明（必须覆盖全部配置项，test_config_system 有完整性校验）
 _FIELD_DESCRIPTIONS: dict[str, str] = {
-    # 群聊管理
-    "white_list_group": "白名单群号，加群/好友等白名单逻辑以此为准",
-    "group_auto_approve": "开启后自动同意入群申请",
-    "friend_auto_approve": "开启后自动同意好友邀请",
-    "star_cost_mode": "开启后加 bot 好友需要消耗星星",
-    "send_forward": "开启后长内容优先用合并转发消息发送",
-    # 腾讯 API
-    "tx_secret_id": "腾讯云 SecretId（腾讯 API 能力使用）",
-    "tx_secret_key": "腾讯云 SecretKey，注意保密",
     # 官Bot AppID
     "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
     "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
-    # 天行 API
-    "tianxing_apikey": "天行数据 API Key（天行接口能力使用）",
-    # 有道翻译 API
-    "youdao_appkey": "有道智云应用 ID",
-    "youdao_secret": "有道智云应用密钥，注意保密",
     # 钓鱼配置
     "cool_time": "单次钓鱼的冷却时长（秒）",
     "fish_cd": "钓鱼通用冷却（秒）",
@@ -215,22 +146,9 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "crystal_to_bottle": "1 个漂流瓶需要的水之心数量",
     "crystal_to_net": "捞一次漂流瓶需要的水之心数量",
     "fish_limit_count": "每人每日最大钓鱼次数",
-    "admin_group": "漂流瓶举报/审核群号",
-    "fish_list": "鱼的种类列表（emoji 顺序即稀有度升序）",
-    "fish_price": "各物品单价表（键为 emoji，含鱼饵 🍙）",
-    "probability": "钓鱼结果概率（份）：没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心",
-    "probability_2": "各种鱼上钩概率（份），顺序与鱼列表一致",
-    # 萝莉/Boss 配置
-    "maxhp": "萝莉/Boss 初始血量",
-    "lowdamage": "捉萝莉单次伤害下限",
-    "highdamage": "捉萝莉单次伤害上限",
-    "loliprice": "捉萝莉消耗的鱼饵数量",
-    "miss": "攻击 miss 概率（0~1）",
-    "bbjb": "miss 后反爆用户金币的概率（0~1）",
-    "bjb": "击败萝莉后爆出金币的概率（0~1）",
-    "xinyun_bjb": "幸运大奖概率（0~1）",
-    "jishagold": "击杀萝莉/Boss 的奖励金币",
-    "bosstime": "Boss 战模式：0 关闭，1 开启，其余数字=鱼塘和 Boss 战同时开启",
+    "fish_list": "鱼的种类列表（emoji 顺序对应鱼上钩权重，权重已硬编码弃用配置）",
+    "fish_price": "物品单价表（键为 emoji，含鱼饵 🍙）",
+    "probability": "钓鱼结果权重（份）：没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心；需恰好 5 份，否则回落默认",
     # 经济系统
     "min_rest": "转账后账户最少需保留的金币",
     "dibao": "低保金额，贫穷时可以领取",
@@ -258,15 +176,10 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     # 其他配置
     "star_price": "多连钓鱼星星单价（0 = 不消耗星星）",
     "extra_gold": "钓鱼补贴开关：1 时百连钓鱼未用星星可获 300 金币补贴",
-    "abilityfee": "生成超能力所需的金币",
-    "debug_mode": "调试模式，输出更多日志",
-    "freeze_fc": "预留：账户冻结参数 fc（当前版本未使用）",
-    "freeze_sc": "预留：账户冻结参数 sc（当前版本未使用）",
     "blackusers": "黑名单用户（统一 UID 列表）",
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
     "permit_bot": "自己的 bot 账号列表（云 bot 模式下必填）",
-    "permit_group": "允许领养云冰祈的群号列表",
     "ip_address": "本机公网 IP（云 bot 模式必填；也用于冰祈配置回复的面板地址）",
 }
 
@@ -473,6 +386,15 @@ def init_config_store(
 
     with _connect() as conn:
         _ensure_table(conn)
+        # 清理已从 schema 删除的字段残留行
+        valid_keys = tuple(KoinoribotConfig.model_fields)
+        placeholders = ",".join("?" * len(valid_keys))
+        stale = conn.execute(
+            f"DELETE FROM config WHERE key NOT IN ({placeholders})", valid_keys
+        ).rowcount
+        if stale:
+            conn.commit()
+            logger.info(f"[config_store] 已清理 {stale} 条废弃配置项")
         row_count = conn.execute("SELECT COUNT(*) AS c FROM config").fetchone()["c"]
 
     migrated_superusers: list[int] = []

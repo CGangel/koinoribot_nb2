@@ -22,7 +22,7 @@ from ...money import money
 from ...tools import get_group_id, get_uid
 from ...utils import FreqLimiter
 from .getbottle import BottleManager
-from .getfish import FISH_LIST, FISH_PRICE, PROBABILITY, PROBABILITY_2, FishingManager
+from .getfish import PROBABILITY_2, FishingManager, fish_list, fish_price, probability
 from .serif import COOL_TIME_SERIF, GET_FISH_SERIF, NO_FISH_SERIF
 from ...nickname import get_user_nickname
 
@@ -117,14 +117,14 @@ prob_cmd = on_command("概率公示", priority=5, block=True)
 
 @prob_cmd.handle()
 async def handle_prob() -> None:
-    air_force_prob = PROBABILITY[0]
-    total_prob = sum(PROBABILITY)
+    air_force_prob = probability()[0]
+    total_prob = sum(probability())
     air_force_percentage = (air_force_prob / total_prob) * 100
 
     msg = f"【钓鱼概率公示】\n\n空军概率：{air_force_percentage:.2f}%\n\n钓到鱼后各鱼种概率：\n"
 
     fish_total = sum(PROBABILITY_2)
-    for fish, prob in zip(FISH_LIST, PROBABILITY_2):
+    for fish, prob in zip(fish_list(), PROBABILITY_2):
         percentage = (prob / fish_total) * 100
         msg += f"{fish}: {percentage:.2f}%\n"
 
@@ -368,7 +368,7 @@ async def handle_sell(
         await sell_cmd.finish("用法: 出售 鱼emoji [数量]", at_sender=True)
 
     fish = parts[0]
-    if fish not in FISH_LIST + ["🍙"]:
+    if fish not in fish_list() + ["🍙"]:
         await sell_cmd.finish("这不是可出售的物品", at_sender=True)
 
     num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
@@ -382,7 +382,7 @@ async def handle_sell(
         num = user_info["fish"][fish]
 
     await FishingManager.decrease_value(uid, "fish", fish, num, user_info)
-    get_golds = FISH_PRICE.get(fish, 0) * num
+    get_golds = fish_price().get(fish, 0) * num
     money.gold += get_golds
     await FishingManager.increase_value(uid, "statis", "sell", get_golds, user_info)
     await FishingManager.save_user_info(uid, user_info)
@@ -408,7 +408,7 @@ async def handle_sell_small(
     for fish in fishes:
         count = user_info["fish"].get(fish, 0)
         if count > 0:
-            gold = count * FISH_PRICE.get(fish, 0)
+            gold = count * fish_price().get(fish, 0)
             total_gold += gold
             user_info["fish"][fish] = 0
             result.append(f"{fish}×{count} → {gold}金币")
@@ -443,7 +443,7 @@ async def handle_sell_all(
     for fish in fishes:
         count = user_info["fish"].get(fish, 0)
         if count > 0:
-            gold = count * FISH_PRICE.get(fish, 0)
+            gold = count * fish_price().get(fish, 0)
             total_gold += gold
             user_info["fish"][fish] = 0
             result.append(f"{fish}×{count} → {gold}金币")
@@ -473,7 +473,7 @@ async def handle_free(
     message = args.extract_plain_text()
     parts = message.split()
 
-    if not parts or parts[0] not in FISH_LIST:
+    if not parts or parts[0] not in fish_list():
         await free_cmd.finish("用法: 放生 鱼emoji [数量]", at_sender=True)
 
     fish = parts[0]
@@ -488,7 +488,7 @@ async def handle_free(
         num = user_info["fish"][fish]
 
     await FishingManager.decrease_value(uid, "fish", fish, num, user_info)
-    get_frags = FISH_PRICE.get(fish, 0) * num
+    get_frags = fish_price().get(fish, 0) * num
 
     # 计算碎片转换
     user_frags = user_info["statis"].get("frags", 0)
