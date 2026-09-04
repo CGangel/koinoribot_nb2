@@ -16,6 +16,7 @@ import httpx
 import io
 import time as _time
 import textwrap
+from datetime import datetime, timedelta, timezone
 from .build_image import BuildImage
 
 from .uid_manager import get_uid as get_unified_uid
@@ -24,6 +25,9 @@ from .uid_manager import get_external_ids
 from .nickname import get_user_nickname
 
 BASE64_PREFIX = "base64://"
+
+# 官Bot 禁言到期时间按北京时间（RFC3339 +08:00）生成
+_QQ_TZ = timezone(timedelta(hours=8))
 
 # ===== UID 相关 =====
 
@@ -86,7 +90,11 @@ def set_qqbot_appid(appid: str, api_url: str = ""):
 
 
 async def _fetch_qqbot_nickname(openid: str) -> str:
-    """通过 API 获取官Bot用户昵称（带缓存）"""
+    """通过第三方 API 获取官Bot用户昵称（带缓存）。
+
+    仅为降级路径：QQ 消息事件自带官方昵称字段（author.username），
+    缺失时（非消息事件/平台未下发）才走这里。
+    """
     if not _qqbot_appid or not _qqbot_openid_api:
         return ""
     
@@ -119,7 +127,7 @@ async def _fetch_qqbot_nickname(openid: str) -> str:
 # ===== 用户信息相关 =====
 
 async def get_sender_nickname(event: Event) -> str:
-    """获取发送者昵称"""
+    """获取发送者昵称（自定义昵称 > 平台官方昵称 > 第三方 API 降级）"""
     try:
         platform_uid = event.get_user_id()
         uid = resolve_uid(event, platform_uid)
@@ -133,14 +141,15 @@ async def get_sender_nickname(event: Event) -> str:
         if event.sender:
             return event.sender.nickname or event.sender.card or ""
     if isinstance(event, qq.Event):
-        # 优先通过 API 获取昵称
-        openid = event.get_user_id()
-        api_nickname = await _fetch_qqbot_nickname(openid)
+        # 官方实现优先：QQ 消息事件的 author.username 即用户昵称
+        author = getattr(event, "author", None)
+        username = getattr(author, "username", None) if author else None
+        if username:
+            return username
+        # 降级路径：第三方 API 按 openid 查询
+        api_nickname = await _fetch_qqbot_nickname(event.get_user_id())
         if api_nickname:
             return api_nickname
-        # 回退到事件自带的昵称
-        if hasattr(event, 'author') and event.author:
-            return getattr(event.author, 'username', '') or ""
     return ""
 
 
@@ -647,3 +656,223 @@ def build_image_msg(event: Event, image_data: Union[bytes, str]):
     else:
         from nonebot.adapters.onebot.v11 import MessageSegment as OBMsgSeg
         return OBMsgSeg.image(f"{BASE64_PREFIX}{b64_str}")
+
+
+# ===== 群管理 API=====
+
+
+
+def _load_qq_set_mute_state():
+    """加载官Bot禁言请求模型：优先本地补丁，适配器升级后回退原生模型。"""
+    try:
+        from qq_bot_api_patch import SetMemberMuteState
+    except ImportError:
+        from nonebot.adapters.qq.models.qq import SetMemberMuteState
+    return SetMemberMuteState
+
+
+async def recall_message(
+    bot: Bot,
+    *,
+    message_id,
+    group_openid: str = "",
+    openid: str = "",
+) -> bool:
+    """撤回消息（失败返回 False 并记录日志）。
+
+    - OneBot：delete_msg，群聊/私聊通用。
+    - QQBot 群聊：delete_group_message，需 group_openid；发出 2 分钟内有效，
+      官Bot为群管理员时可撤回普通成员的消息（message_id 取群消息事件的 id）。
+    - QQBot 单聊：delete_c2c_message，需 openid。
+    """
+    try:
+        if isinstance(bot, onebot.Bot):
+            await bot.delete_msg(message_id=message_id)
+            return True
+        if isinstance(bot, qq.Bot):
+            if group_openid:
+                await bot.delete_group_message(
+                    group_openid=group_openid, message_id=str(message_id)
+                )
+            elif openid:
+                await bot.delete_c2c_message(
+                    openid=openid, message_id=str(message_id)
+                )
+            else:
+                raise ValueError("QQBot 撤回需要 group_openid（群聊）或 openid（单聊）")
+            return True
+        raise ValueError(f"不支持的协议: {type(bot)}")
+    except Exception as e:
+        logger.warning(f"撤回消息失败: {e}")
+        return False
+
+
+async def get_group_info(
+    bot: Bot, *, group_id=None, group_openid: str = ""
+) -> Optional[Dict[str, Any]]:
+    """获取群信息，归一化返回 {group_name, member_count, raw}，失败返回 None。
+
+    - OneBot：get_group_info，需 group_id。
+    - QQBot：需 group_openid；该接口为白名单机制，无权限时返回 None。
+    """
+    try:
+        if isinstance(bot, onebot.Bot):
+            if group_id is None:
+                raise ValueError("OneBot 获取群信息需要 group_id")
+            raw = await bot.get_group_info(group_id=int(group_id))
+            return {
+                "group_name": raw.get("group_name"),
+                "member_count": raw.get("member_count"),
+                "raw": raw,
+            }
+        if isinstance(bot, qq.Bot):
+            if not group_openid:
+                raise ValueError("QQBot 获取群信息需要 group_openid")
+            info = await bot.get_group_info(group_id=group_openid)
+            return {
+                "group_name": info.group_name,
+                "member_count": info.group_member_num,
+                "raw": info.model_dump(),
+            }
+        raise ValueError(f"不支持的协议: {type(bot)}")
+    except Exception as e:
+        logger.warning(f"获取群信息失败: {e}")
+        return None
+
+
+async def mute_group_member(
+    bot: Bot,
+    *,
+    group_id=None,
+    group_openid: str = "",
+    user_id=None,
+    member_openid: str = "",
+    duration: int = 600,
+) -> bool:
+    """禁言群成员 duration 秒（duration<=0 解除禁言），失败返回 False 并记录日志。
+
+    - OneBot：set_group_ban，需 group_id + user_id。
+    - QQBot：set_group_members_mute，需 group_openid + member_openid；
+      最长 30 天，且不能禁言群主/管理员/机器人。
+    """
+    try:
+        if isinstance(bot, onebot.Bot):
+            if group_id is None or user_id is None:
+                raise ValueError("OneBot 禁言需要 group_id 和 user_id")
+            await bot.set_group_ban(
+                group_id=int(group_id), user_id=int(user_id), duration=int(duration)
+            )
+            return True
+        if isinstance(bot, qq.Bot):
+            if not group_openid or not member_openid:
+                raise ValueError("QQBot 禁言需要 group_openid 和 member_openid")
+            SetMemberMuteState = _load_qq_set_mute_state()
+            if duration > 0:
+                expire = datetime.now(_QQ_TZ) + timedelta(seconds=duration)
+                member = SetMemberMuteState(
+                    op="add", member_openid=member_openid, mute_expire_at=expire
+                )
+            else:
+                member = SetMemberMuteState(op="del", member_openid=member_openid)
+            await bot.set_group_members_mute(group_id=group_openid, members=[member])
+            return True
+        raise ValueError(f"不支持的协议: {type(bot)}")
+    except Exception as e:
+        logger.warning(f"禁言群成员失败: {e}")
+        return False
+
+
+async def get_group_mute_setting(
+    bot: Bot, *, group_openid: str = ""
+) -> Optional[Dict[str, Any]]:
+    """查询群禁言状态，归一化返回 {mode, members, raw}。
+
+    仅 QQBot 支持（需群管理员），OneBot 无对应接口，返回 None。
+    members 为当前仍在禁言中的成员：[{member_openid, username, mute_expire_at}]。
+    """
+    if not (isinstance(bot, qq.Bot) and group_openid):
+        return None
+    try:
+        setting = await bot.get_group_mute_setting(group_id=group_openid)
+        return {
+            "mode": setting.global_rule.mode if setting.global_rule else None,
+            "members": [m.model_dump() for m in setting.members],
+            "raw": setting.model_dump(),
+        }
+    except Exception as e:
+        logger.warning(f"查询群禁言状态失败: {e}")
+        return None
+
+
+async def get_group_join_requests(
+    bot: Bot,
+    *,
+    group_openid: str = "",
+    cursor: str = "",
+    limit: int = 0,
+) -> Optional[Dict[str, Any]]:
+    """拉取入群申请列表（仅 QQBot 支持，需群管理员；OneBot 无对应接口返回 None）。
+
+    返回归一化 {requests, next_cursor, raw}：
+    - requests: [{join_request_id, member_openid, username, apply_source,
+      verify_info, ...}]，join_request_id 供 approve_group_join_request 回传。
+    - next_cursor: 下一页游标，空串表示末页（limit 默认 20、最大 50）。
+    """
+    if not (isinstance(bot, qq.Bot) and group_openid):
+        return None
+    try:
+        result = await bot.get_group_join_request_list(
+            group_id=group_openid, cursor=cursor or None, limit=limit or None
+        )
+        return {
+            "requests": [r.model_dump() for r in result.requests],
+            "next_cursor": result.next_cursor or "",
+            "raw": result.model_dump(),
+        }
+    except Exception as e:
+        logger.warning(f"拉取入群申请列表失败: {e}")
+        return None
+
+
+async def approve_group_join_request(
+    bot: Bot,
+    approve: bool,
+    *,
+    flag: str = "",
+    sub_type: str = "add",
+    group_openid: str = "",
+    member_openid: str = "",
+    join_request_id: str = "",
+    reject_reason: str = "",
+    add_to_member_blacklist: bool = False,
+) -> bool:
+    """审批入群申请（approve=True 同意，False 拒绝），失败返回 False 并记录日志。
+
+    - OneBot：set_group_add_request，需 flag（请求事件携带）与 sub_type（add/invite）。
+    - QQBot：approval_join_request，需 group_openid + member_openid，
+      可附 join_request_id（入群申请列表/入群申请事件提供）。
+    """
+    try:
+        if isinstance(bot, onebot.Bot):
+            if not flag:
+                raise ValueError("OneBot 审批入群需要 flag")
+            await bot.set_group_add_request(
+                flag=str(flag), sub_type=sub_type, approve=approve
+            )
+            return True
+        if isinstance(bot, qq.Bot):
+            if not group_openid or not member_openid:
+                raise ValueError("QQBot 审批入群需要 group_openid 和 member_openid")
+            await bot.approval_join_request(
+                group_id=group_openid,
+                member_openid=member_openid,
+                op="approve" if approve else "decline",
+                join_request_id=join_request_id or None,
+                reject_reason=reject_reason if not approve else None,
+                add_to_member_blacklist=add_to_member_blacklist if not approve else False,
+            )
+            return True
+        raise ValueError(f"不支持的协议: {type(bot)}")
+    except Exception as e:
+        logger.warning(f"审批入群申请失败: {e}")
+        return False
