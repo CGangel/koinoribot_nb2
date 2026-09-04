@@ -17,7 +17,7 @@ from nonebot.params import CommandArg, Depends
 from nonebot.plugin import PluginMetadata
 
 from ...tools import send_group_forward_msg, build_forward_chain
-from ...koinori_config import config
+from ...config_store import config
 from ...money import money
 from ...tools import get_group_id, get_uid
 from ...utils import FreqLimiter

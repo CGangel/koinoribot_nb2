@@ -9,7 +9,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.rule import Rule
 import re
 
-from ...koinori_config import config as koinori_config
+from ...config_store import config as koinori_config
 from ...nickname import get_user_nickname
 from ...tools import get_sender_nickname, get_uid
 from ...uid_manager import get_uid as get_unified_uid

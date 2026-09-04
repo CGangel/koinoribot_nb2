@@ -30,9 +30,10 @@ class _SuManager:
         return str(plugin_dir / "src" / "database" / "koinoribot.db")
 
     def get_config_superusers(self) -> list[int]:
+        """等级 0 超级用户种子列表（passwd.py 的 SUPERUSERS）。"""
         try:
-            from .koinori_config import config
-            return getattr(config, "superusers", [])
+            from .config_store import get_passwd_superusers
+            return get_passwd_superusers()
         except Exception:
             return []
 

@@ -35,13 +35,24 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 
 ## 配置
 
-主要配置集中在 `koinori_config.py`。仓库只保留 `koinori_config.py.template` 模板；启动时如果本地不存在 `koinori_config.py`，会自动从模板创建一份。
+除超级用户外的全部配置存储在 `src/database/koinoribot.db` 的 `config` 表中，启动时一次性加载进内存。历史版本使用的 `koinori_config.py` 文件会在首次启动时自动迁移入库并删除。
 
-常用项：
+### 8889 配置面板
+
+- 启动后可通过 `http://<ip>:8889/` 网页修改全部配置项，保存后立即生效（写库并同步内存，无需重启）。
+- 面板需要密码登录，密码保存在 `koinoribot_nb2/passwd.py` 的 `PANEL_PASSWORD`（首次启动自动按模板生成随机密码，请打开文件查看并妥善保管）。
+- 防爆破：同一 IP 10 分钟内密码错误 5 次将锁定 15 分钟。
+- 等级为 0 的 SU 可在聊天中发送 `冰祈配置` 获取面板地址。
+
+### passwd.py
+
+仓库只保留 `passwd.py.template` 模板；启动时若本地不存在 `passwd.py` 会自动创建（`SUPERUSERS` 沿用模板默认值，`PANEL_PASSWORD` 为随机值）。`passwd.py` 已加入 `.gitignore`，请勿提交到仓库。
+
+常用配置项（均可通过面板修改）：
 
 - `qqbot_appid`、`qqbot_openid_api`：官方 QQBot 用户昵称/头像查询。
 - `send_forward`：是否启用合并转发消息。
-- `superusers`：最高权限 SU 的统一 UID 列表。
+- `superusers`：最高权限 SU（等级 0）的统一 UID 列表，保存在 `passwd.py`，不在 config 表中。
 - `blackusers`：冻结用户 UID 列表。
 - `dibao`、`gold_max`、`transfer_fee`、`min_rest`：经济系统参数。
 - `cool_time`、`fish_cd`、`bait_price`、`bottle_price`、`comment_price`：钓鱼和漂流瓶参数。
@@ -55,7 +66,7 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 
 - UID 是插件内部统一账号 ID，用于跨 OneBot V11 和 QQBot 保存金币、背包、宠物等数据。
 - `注册验证码` 仅支持私聊使用。获取验证码后，到另一个平台发送 `绑定账号 <验证码>`，并按提示选择保留哪个 UID。
-- SU 权限分为 level 0、level 1 和 level 2。`koinori_config.superusers` 中的 UID 视为 level 0；`注册su` 根据激活码类型注册为 level 1 或 level 2。
+- SU 权限分为 level 0、level 1 和 level 2。`passwd.py` 的 `SUPERUSERS` 中的 UID 视为 level 0；`注册su` 根据激活码类型注册为 level 1 或 level 2。
 - 标注“SU”的命令需要 SU 权限。部分管理命令仅 level 0 可用。
 - AI 画图和 AI 修图支持 OneBot V11 和 QQBot 侧使用。
 - 红包、24 点、领养云冰祈等功能仅支持群聊场景。
@@ -228,7 +239,7 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 http://<ip_address>:8888/
 ```
 
-其中 `ip_address` 来自 `koinori_config.py`。
+其中 `ip_address` 为配置面板中“公网白名单模式”分区的 `ip_address`。
 
 | 命令 | 用途 |
 | :--- | :--- |

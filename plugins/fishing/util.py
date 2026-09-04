@@ -5,7 +5,7 @@ from typing import Optional, Dict
 
 from nonebot import logger
 
-from ...koinori_config import config
+from ...config_store import config
 
 
 def _fish_limit_statement(

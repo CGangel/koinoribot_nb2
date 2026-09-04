@@ -7,7 +7,7 @@ from nonebot import logger
 from nonebot.adapters import Bot, Event
 from nonebot.matcher import Matcher
 from ...money import money
-from ...koinori_config import config
+from ...config_store import config
 from .util import DatabaseManager
 from .serif import GET_FISH_SERIF, NO_FISH_SERIF, COOL_TIME_SERIF
 from ...su_manager import is_su

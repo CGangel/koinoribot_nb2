@@ -12,7 +12,7 @@ from typing import Optional, Union
 
 from nonebot.log import logger
 
-from .koinori_config import get_config
+from .config_store import get_config
 
 
 # 默认初始资产
@@ -29,8 +29,9 @@ DEFAULT_ASSETS = {
     "badluck": 0,  # 忌做事项索引
 }
 
-# 资产上限
-GOLD_MAX = get_config().gold_max
+# 资产上限（运行时读取，8889 面板修改后即时生效）
+def _gold_max() -> int:
+    return get_config().gold_max
 
 KEYWORD_LIST = list(DEFAULT_ASSETS)
 KEYWORD_SET = set(KEYWORD_LIST)
@@ -197,7 +198,7 @@ class _MoneyRepository:
 
         value = int(value)
         if key == "gold":
-            value = min(value, GOLD_MAX)
+            value = min(value, _gold_max())
 
         conn = None
         try:
@@ -233,7 +234,7 @@ class _MoneyRepository:
             if key == "gold":
                 cursor.execute(
                     f"UPDATE user_money SET {key} = MIN({key} + ?, ?) WHERE uid = ?",
-                    (value, GOLD_MAX, uid),
+                    (value, _gold_max(), uid),
                 )
             else:
                 cursor.execute(
@@ -296,7 +297,7 @@ class _MoneyRepository:
             cursor = conn.cursor()
 
             if key == "gold":
-                cursor.execute(f"UPDATE user_money SET {key} = MIN({key} + ?, ?)", (value, GOLD_MAX))
+                cursor.execute(f"UPDATE user_money SET {key} = MIN({key} + ?, ?)", (value, _gold_max()))
             else:
                 cursor.execute(f"UPDATE user_money SET {key} = {key} + ?", (value,))
 

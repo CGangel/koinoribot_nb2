@@ -31,7 +31,7 @@ from ...tools import (
 )
 from ...uid_manager import get_external_ids
 from ...su_manager import is_su
-from ...koinori_config import config as koinori_config
+from ...config_store import config as koinori_config
 
 __plugin_meta__ = PluginMetadata(
     name="public_whitelist",

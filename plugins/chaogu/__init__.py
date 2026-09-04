@@ -23,7 +23,7 @@ from nonebot.params import Depends, RegexGroup, CommandArg
 from nonebot import logger
 
 from ...money import money
-from ...koinori_config import config
+from ...config_store import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain, get_at_uid, build_image_msg
 from ..fishing.util import DatabaseManager as FishingDB
 from ...nickname import get_user_nickname
@@ -1277,7 +1277,7 @@ async def handle_transfer_at(uid: int = Depends(get_uid), args: Message = Comman
 
 async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
     """执行转账逻辑"""
-    blackusers = getattr(config, 'BLACKUSERS', [])
+    blackusers = getattr(config, 'blackusers', [])
     if sender_uid in blackusers:
         await cmd.finish('\n操作失败，账户被冻结，请联系管理员寻求帮助。', at_sender=True)
     

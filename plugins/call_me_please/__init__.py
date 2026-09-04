@@ -12,7 +12,7 @@ from nonebot.params import CommandArg, Depends
 from nonebot.plugin import PluginMetadata
 from nonebot.log import logger
 
-from ...koinori_config import config
+from ...config_store import config
 from ...tools import get_uid, build_image_msg, get_sender_nickname
 from ...resources import get as get_res
 from ...su_manager import is_su_contributor

@@ -24,7 +24,7 @@ from nonebot.plugin import PluginMetadata
 from ...money import money, get_database_path
 from ...su_manager import is_su_contributor
 from ...tools import get_uid, build_image_msg, is_onebot, is_qqbot
-from ...koinori_config import config as koinori_config
+from ...config_store import config as koinori_config
 from ...utils import FreqLimiter
 from ._image_meta import detect_image_upload_meta
 from ._image_response import (

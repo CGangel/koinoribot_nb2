@@ -1,0 +1,11 @@
+# Koinoribot 敏感配置（请勿提交到仓库）
+#
+# 本文件由 bot 首次启动时自动生成（密码为随机值）；
+# 也可手动复制本模板为 passwd.py 并自行填写。
+#
+# 8889 配置面板的访问密码
+PANEL_PASSWORD = "NNs9stNMfHKSFFJ3BSU4lg"
+
+# 超级用户列表（等级 0 = 最高权限，可使用“冰祈配置”指令查看配置面板）
+# 值为统一 UID（与数据库 superusers 表的 uid 同一命名空间）
+SUPERUSERS = [10002, 10001]

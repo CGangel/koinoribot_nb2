@@ -18,7 +18,7 @@ from nonebot import logger
 from nonebot.params import CommandArg, Depends
 
 from ...money import money
-from ...koinori_config import config
+from ...config_store import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain
 
 from .petconfig import (
