@@ -182,6 +182,94 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
     "公网白名单模式": ["public_bot", "permit_bot", "permit_group", "ip_address"],
 }
 
+# 面板字段中文说明（必须覆盖全部配置项，test_config_system 有完整性校验）
+_FIELD_DESCRIPTIONS: dict[str, str] = {
+    # 群聊管理
+    "white_list_group": "白名单群号，加群/好友等白名单逻辑以此为准",
+    "group_auto_approve": "开启后自动同意入群申请",
+    "friend_auto_approve": "开启后自动同意好友邀请",
+    "star_cost_mode": "开启后加 bot 好友需要消耗星星",
+    "send_forward": "开启后长内容优先用合并转发消息发送",
+    # 腾讯 API
+    "tx_secret_id": "腾讯云 SecretId（腾讯 API 能力使用）",
+    "tx_secret_key": "腾讯云 SecretKey，注意保密",
+    # 官Bot AppID
+    "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
+    "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
+    # 天行 API
+    "tianxing_apikey": "天行数据 API Key（天行接口能力使用）",
+    # 有道翻译 API
+    "youdao_appkey": "有道智云应用 ID",
+    "youdao_secret": "有道智云应用密钥，注意保密",
+    # 钓鱼配置
+    "cool_time": "单次钓鱼的冷却时长（秒）",
+    "fish_cd": "钓鱼通用冷却（秒）",
+    "throw_cool_time": "扔漂流瓶冷却时长（秒）；修改需重启生效",
+    "salvage_cool_time": "捡漂流瓶冷却时长（秒）；修改需重启生效",
+    "comment_cool_time": "评论漂流瓶冷却时长（秒）；修改需重启生效",
+    "bait_num": "钓鱼一次消耗的鱼饵数量",
+    "bait_price": "鱼饵单价（金币）",
+    "bottle_price": "购买漂流瓶的价格（金币）",
+    "comment_price": "评论漂流瓶需要的金币",
+    "frag_to_crystal": "碎片兑换 1 个水之心所需数量",
+    "crystal_to_bottle": "1 个漂流瓶需要的水之心数量",
+    "crystal_to_net": "捞一次漂流瓶需要的水之心数量",
+    "fish_limit_count": "每人每日最大钓鱼次数",
+    "admin_group": "漂流瓶举报/审核群号",
+    "fish_list": "鱼的种类列表（emoji 顺序即稀有度升序）",
+    "fish_price": "各物品单价表（键为 emoji，含鱼饵 🍙）",
+    "probability": "钓鱼结果概率（份）：没钓到鱼, 随机事件, 钓到鱼, 钓到金币, 钓到水之心",
+    "probability_2": "各种鱼上钩概率（份），顺序与鱼列表一致",
+    # 萝莉/Boss 配置
+    "maxhp": "萝莉/Boss 初始血量",
+    "lowdamage": "捉萝莉单次伤害下限",
+    "highdamage": "捉萝莉单次伤害上限",
+    "loliprice": "捉萝莉消耗的鱼饵数量",
+    "miss": "攻击 miss 概率（0~1）",
+    "bbjb": "miss 后反爆用户金币的概率（0~1）",
+    "bjb": "击败萝莉后爆出金币的概率（0~1）",
+    "xinyun_bjb": "幸运大奖概率（0~1）",
+    "jishagold": "击杀萝莉/Boss 的奖励金币",
+    "bosstime": "Boss 战模式：0 关闭，1 开启，其余数字=鱼塘和 Boss 战同时开启",
+    # 经济系统
+    "min_rest": "转账后账户最少需保留的金币",
+    "dibao": "低保金额，贫穷时可以领取",
+    "gold_max": "金币持有上限",
+    "transfer_fee": "转账手续费比率（0.1 = 10%）",
+    "stone_fee": "退还宝石的手续费比率",
+    "return_item_fee": "退还宠物用品的手续费比率",
+    # 股票配置
+    "maxtype": "每人最多持有的股票种类数",
+    "maxcount": "每种股票的最大持有数量",
+    # AI画图配置
+    "deepseek_api_key": "DeepSeek API Key（用于画图提示词翻译），注意保密",
+    "gpt_image_api_key": "画图接口 API Key，注意保密",
+    "gpt_image_api_base_url": "画图接口地址（OpenAI 兼容格式）",
+    "gpt_image_model": "画图模型名",
+    "gpt_image_response_format": "图片返回格式：url 或 b64_json",
+    "draw_cost": "画图/修图单次消耗金币",
+    "daily_limit": "每人每日画图/修图次数上限",
+    "ai_draw_enable": "是否启用 AI 画图/修图功能",
+    "ai_draw_size": "普通画图尺寸（auto / 1024x1024 / 1024x1536 等）",
+    "shaojo_image_size": "今日人设图尺寸（如 800x1200）",
+    "aidraw_quality": "普通画图/修图/人设图质量（low / medium / high）",
+    "aidraw_high_quality": "高质量画图/修图/人设图质量（low / medium / high）",
+    "enable_gold_aidraw": "是否允许花金币画图；关闭后只能用免费次数",
+    # 其他配置
+    "star_price": "多连钓鱼星星单价（0 = 不消耗星星）",
+    "extra_gold": "钓鱼补贴开关：1 时百连钓鱼未用星星可获 300 金币补贴",
+    "abilityfee": "生成超能力所需的金币",
+    "debug_mode": "调试模式，输出更多日志",
+    "freeze_fc": "预留：账户冻结参数 fc（当前版本未使用）",
+    "freeze_sc": "预留：账户冻结参数 sc（当前版本未使用）",
+    "blackusers": "黑名单用户（统一 UID 列表）",
+    # 公网白名单模式
+    "public_bot": "是否启用云 bot（公网白名单）模式",
+    "permit_bot": "自己的 bot 账号列表（云 bot 模式下必填）",
+    "permit_group": "允许领养云冰祈的群号列表",
+    "ip_address": "本机公网 IP（云 bot 模式必填；也用于冰祈配置回复的面板地址）",
+}
+
 # 面板展示时需要打码的字段（含 key/secret/appkey 的敏感项）
 _SECRET_FIELD_HINTS = ("key", "secret")
 
@@ -299,7 +387,7 @@ def update_config(updates: dict[str, Any]) -> list[str]:
 
 
 def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
-    """生成面板数据：分区字段列表（含类型与打码值）。"""
+    """生成面板数据：分区字段列表（含类型、中文说明与打码值）。"""
     dump = config.model_dump()
     sections: dict[str, list[dict[str, Any]]] = {}
     for section, fields in _FIELD_SECTIONS.items():
@@ -311,6 +399,7 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
             items.append(
                 {
                     "key": name,
+                    "desc": _FIELD_DESCRIPTIONS.get(name, ""),
                     "type": getattr(annotation, "__name__", str(annotation)),
                     "value": value if (not secret or reveal) else mask_value(value),
                     "masked": secret and not reveal,

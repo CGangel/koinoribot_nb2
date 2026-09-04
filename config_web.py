@@ -327,6 +327,8 @@ _PAGE_HTML = """<!DOCTYPE html>
     .row input { flex: 1 1 auto; width: auto; }
   }
   .tag { font-size: 11px; color: #888; }
+  .desc { display: block; font-family: system-ui, sans-serif; font-size: 11px;
+          color: #999; margin-top: 2px; }
   .hint { font-size: 12px; color: #888; margin: 8px 0; word-break: break-all; }
   #bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   button { padding: 6px 16px; border: 0; border-radius: 6px; background: #3b7ddd;
@@ -378,15 +380,20 @@ function show(on) {
 
 function render() {
   const root = document.getElementById('sections'); root.innerHTML = '';
-  for (const [section, fields] of Object.entries(data.sections)) {
+    for (const [section, fields] of Object.entries(data.sections)) {
     const h = document.createElement('h2'); h.textContent = section; root.appendChild(h);
     for (const f of fields) {
       const row = document.createElement('div'); row.className = 'row';
       const label = document.createElement('label');
-      label.textContent = f.key + ' ';
+      label.appendChild(document.createTextNode(f.key + ' '));
       const tag = document.createElement('span'); tag.className = 'tag';
       tag.textContent = f.type + (f.masked ? ' ·已打码' : '');
       label.appendChild(tag);
+      if (f.desc) {
+        const desc = document.createElement('span'); desc.className = 'desc';
+        desc.textContent = f.desc;
+        label.appendChild(desc);
+      }
       const input = document.createElement('input');
       input.id = 'f_' + f.key;
       input.dataset.type = f.type;
