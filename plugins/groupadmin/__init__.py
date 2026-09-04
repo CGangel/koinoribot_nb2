@@ -19,6 +19,8 @@ OneBot 侧：GroupRequestEvent 请求事件实时推送；平台无管理员保�
 配置见 8889 面板“群管理”分区。
 """
 
+import re
+
 import nonebot
 from nonebot import logger, on_notice
 from nonebot.adapters import Bot, Event
@@ -178,7 +180,7 @@ async def _process_ob_join_request(bot: onebot.Bot, event: onebot.GroupRequestEv
         return False
     if event.sub_type != "add":
         return False
-    request = {"verify_info": {"verify_message": event.comment or ""}}
+    request = {"verify_info": _ob_comment_to_verify_info(event.comment or "")}
     if not keyword_hit(request, koinori_config.join_request_keywords):
         return False
     if not await _ob_bot_is_group_admin(bot, event.group_id):
@@ -203,7 +205,7 @@ async def _process_ob_join_request(bot: onebot.Bot, event: onebot.GroupRequestEv
 
 def format_join_request_notice(request: dict, approved: bool) -> str:
     """生成入群申请推送文案。request 为 JoinRequest.model_dump() 等价 dict
-    （OneBot 侧为 {"username":…, "verify_info": {"verify_message": 评论}}）。"""
+    （OneBot 侧为 {"username":…, "verify_info": …}，由 _ob_comment_to_verify_info 解析）。"""
     username = (
         request.get("username")
         or request.get("user_id")
@@ -211,11 +213,47 @@ def format_join_request_notice(request: dict, approved: bool) -> str:
         or "未知用户"
     )
     lines = ["【入群申请】", f"申请人：{username}"]
-    verify = join_request_texts(request)
-    if verify:
-        lines.append(f"验证：{verify}")
+    verify = request.get("verify_info") or {}
+    questions = []
+    message = str(verify.get("verify_message") or "").strip()
+    if message:
+        questions.append(message)
+    answers = []
+    for qa in verify.get("review_qa_list") or []:
+        question = str(qa.get("question") or "").strip()
+        answer = str(qa.get("answer") or "").strip()
+        if question:
+            questions.append(question)
+        if answer:
+            answers.append(answer)
+    if questions:
+        lines.append("验证：" + "；".join(questions))
+    if answers:
+        lines.append("答案：" + "；".join(answers))
     lines.append("状态：" + ("✅ 已自动放行" if approved else "⏳ 待管理员处理"))
     return "\n".join(lines)
+
+
+def _ob_comment_to_verify_info(comment: str) -> dict:
+    """把 OneBot 入群评论（"问题：x\\n答案：y"）解析为 verify_info 结构。"""
+    question, answer = "", ""
+    for line in (comment or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        matched = re.match(r"^问题\s*[：:]\s*(.*)$", line)
+        if matched:
+            question = matched.group(1).strip()
+            continue
+        matched = re.match(r"^答案\s*[：:]\s*(.*)$", line)
+        if matched:
+            answer = matched.group(1).strip()
+            continue
+        if not question and not answer:
+            question = line  # 无前缀的普通验证消息
+    if question or answer:
+        return {"review_qa_list": [{"question": question, "answer": answer}]}
+    return {}
 
 
 async def _push_join_notice_qq(bot, group_openid: str, text: str) -> None:
@@ -272,7 +310,7 @@ async def handle_join_request(bot: Bot, event: Event):
         if isinstance(bot, onebot.Bot):
             request = {
                 "username": str(event.user_id),
-                "verify_info": {"verify_message": event.comment or ""},
+                "verify_info": _ob_comment_to_verify_info(event.comment or ""),
             }
             approved = await _process_ob_join_request(bot, event)
             await _push_join_notice_ob(
