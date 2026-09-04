@@ -93,6 +93,13 @@ async def register_qqbot_appid(bot: Bot):
     """bot 连接时把官Bot appid 自动登记进 join_request_bot_qq，用户只需补填 QQ 号。"""
     if not isinstance(bot, qq.Bot):
         return
+    # 诊断：确认本次连接的 identify 是否订阅了 GROUP_MEMBER_EVENT(1<<24)
+    intents_value = bot.bot_info.intent.to_int()
+    logger.info(
+        f"[groupadmin] 官Bot {bot.self_id} 已连接，"
+        f"identify intents={intents_value}，"
+        f"GROUP_MEMBER_EVENT(1<<24)={'已订阅' if intents_value & (1 << 24) else '未订阅'}"
+    )
     mapping = {str(k): v for k, v in koinori_config.join_request_bot_qq.items()}
     if bot.self_id in mapping:
         return
@@ -127,19 +134,36 @@ async def _process_qq_join_request(bot, request: dict, group_openid: str) -> boo
     官方文档明确查询申请列表与事件推送均要求 bot 为群管理员，
     能收到事件即已具备管理员身份，不再二次校验。
     """
-    if not _auto_approve_enabled():
+    if not koinori_config.join_request_auto_approve:
+        logger.info("[groupadmin] 入群申请跳过：自动审批开关未开启")
+        return False
+    if not koinori_config.join_request_keywords:
+        logger.info("[groupadmin] 入群申请跳过：关键词列表为空")
+        return False
+    if not koinori_config.join_request_bots:
+        logger.info("[groupadmin] 入群申请跳过：join_request_bots 白名单为空")
         return False
     if not qqbot_allowed(bot):
+        logger.info(
+            f"[groupadmin] 入群申请跳过：bot {bot.self_id} 不在 join_request_bots "
+            "白名单（appid 或绑定的 QQ 号均未命中）"
+        )
         return False
     if request.get("auto_approved"):
-        return False  # 平台策略已自动通过，无需处理
+        logger.info("[groupadmin] 入群申请跳过：平台策略已自动通过")
+        return False
     request_id = request.get("join_request_id") or ""
     if request_id and request_id in _processed_requests:
+        logger.debug(f"[groupadmin] 入群申请跳过：{request_id} 已处理过")
         return False
     member_openid = request.get("member_openid") or ""
     if not member_openid:
         return False
     if not keyword_hit(request, koinori_config.join_request_keywords):
+        logger.info(
+            f"[groupadmin] 入群申请跳过：验证内容未命中关键词 "
+            f"（{request.get('username') or member_openid} -> {group_openid}）"
+        )
         return False
     ok = await tools.approve_group_join_request(
         bot,
@@ -175,6 +199,8 @@ async def handle_qq_join_request(bot: Bot, event: Event):
         return
     if not isinstance(event, _qq_join_request_event_cls()):
         return
+    # 事件到货即记录，便于确认平台是否推送
+    logger.info(f"[groupadmin] 收到官Bot入群申请事件：{event.get_event_description()}")
     await _process_qq_join_request(bot, event.model_dump(), event.group_openid)
 
 
