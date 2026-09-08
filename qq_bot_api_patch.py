@@ -471,16 +471,18 @@ def _reply_flags() -> dict[str, bool]:
 
 
 def patch_qq_send_reply_quote() -> bool:
-    """官Bot（QQ 适配器）被动回复自动引用（线上已验证可用）。
+    """官Bot（QQ 适配器）被动回复装饰：自动引用 + @回复者（config 统一管理）。
 
-    config 群管理.reply_quote 开启时，群/单聊被动回复自动附带 reference
-    段；适配器发送时会用入站消息的 msg_idx(REFIDX) 填充 message_reference，
-    客户端以引用形式展示（消息头部带被引用者昵称）。入站消息无 REFIDX
-    （无法确定引用目标）时不引用。
-
-    平台不支持 bot 在群 content 中 @ 用户（``<@openid>`` 与
-    ``<qqbot-at-user/>`` 均显示原文，2026-09 线上结论），故 at_sender
-    开关对官Bot无效果（回复保持纯文本），也不注入任何 @。
+    - config 群管理.reply_quote 开启时，群/单聊被动回复自动附带 reference
+      段；适配器发送时会用入站消息的 msg_idx(REFIDX) 填充 message_reference，
+      客户端以引用形式展示（消息头部带被引用者昵称）。入站消息无 REFIDX
+      （无法确定引用目标）时不引用。
+    - config 群管理.at_sender 开启时，群聊回复以官方文档规范的
+      ``<qqbot-at-user id="member_openid" />`` 文本开头 + 换行（@某人，
+      客户端展示 @用户 标签）。C2C 不注入（官方文档：@某人 仅群聊/文字
+      子频道可用）。标签必须严格为文档形式——"/" 前有空格，服务端按精确
+      形式匹配；旧 ``<@openid>`` 处于弃用过渡期，实测会渲染 @ 标签但
+      残留标签原文（2026-09 线上实测）。
     """
     from nonebot.adapters.qq import Bot as QQBot
     from nonebot.adapters.qq.event import (
@@ -499,7 +501,8 @@ def patch_qq_send_reply_quote() -> bool:
     async def send(self, event, message, **kwargs):
         prepend = []
         if isinstance(event, (GroupMessageCreateEvent, C2CMessageCreateEvent)):
-            if _reply_flags()["reply_quote"]:
+            flags = _reply_flags()
+            if flags["reply_quote"]:
                 from .tools import get_qq_ref_idx
 
                 ref_idx = get_qq_ref_idx(event)
@@ -509,13 +512,34 @@ def patch_qq_send_reply_quote() -> bool:
                     log("DEBUG", f"官Bot引用已附带 REFIDX={ref_idx[:32]}...")
                 else:
                     log("DEBUG", "官Bot引用跳过：触发消息无 msg_idx(REFIDX)")
-        if prepend:
-            message = Message(prepend) + Message(message)
+            # @回复者：仅群聊。tag 必须与官方文档逐字符一致（含 "/>" 前空格）
+            if flags["at_sender"] and isinstance(event, GroupMessageCreateEvent):
+                member_openid = getattr(
+                    getattr(event, "author", None), "member_openid", None
+                )
+                if member_openid:
+                    prepend.append(
+                        MessageSegment.text(
+                            f'<qqbot-at-user id="{member_openid}" />\n'
+                        )
+                    )
+            msg = Message(message)
+            # 剥离消息开头为旧 @ 格式预留的换行（与 OneBot 分支保持一致）
+            if msg and msg[0].type == "text":
+                stripped = msg[0].data["text"].lstrip("\n")
+                if stripped != msg[0].data["text"]:
+                    msg = (
+                        Message([MessageSegment.text(stripped)] if stripped else [])
+                        + Message(list(msg[1:]))
+                    )
+            if prepend:
+                msg = Message(prepend) + msg
+            message = msg
         return await original_send(self, event, message, **kwargs)
 
     send._reply_quote_patched = True
     QQBot.send = send
-    log("INFO", "QQBot 回复引用补丁已应用（message_reference 自动附带）")
+    log("INFO", "QQBot 回复装饰补丁已应用（message_reference 自动附带 + @回复者标签）")
     return True
 
 

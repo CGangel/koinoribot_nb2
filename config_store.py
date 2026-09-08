@@ -146,8 +146,8 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "join_request_keywords": "入群自动放行关键词（每项一行）；验证消息或问答答案含任一关键词即命中",
     "join_request_bots": "允许自动审批的 bot 标识，QQ 号或官Bot appid 均可（每项一行）；空列表时所有 bot 均不自动审批",
     "join_request_bot_qq": "官Bot 的 appid→QQ号 绑定；appid 在 bot 连接时自动登记（值为空），只需补填对应 QQ 号；白名单填 appid 时可不填 QQ 号",
-    "reply_quote": "双协议（OneBot/官Bot）被动回复自动以引用形式回复触发消息；OneBot 用原生 reply 消息段、官Bot 用 message_reference（线上已验证）；官Bot 被动回复 5 分钟窗口内有效",
-    "at_sender": "回复消息时 @ 触发用户并换行（@用户+换行+正文）；仅 OneBot 协议生效，官Bot 平台暂不支持渲染 bot 发送的 @（官Bot 回复保持纯文本）；由本开关统一管理，插件内不再单独控制",
+    "reply_quote": "双协议（OneBot/官Bot）被动回复自动以引用形式回复触发消息；OneBot 用原生 reply 消息段、官Bot 用 message_reference；官Bot 被动回复 5 分钟窗口内有效",
+    "at_sender": "回复消息时 @ 触发用户并换行（@用户+换行+正文）；OneBot 用 at 消息段，官Bot 群聊用官方 <qqbot-at-user/> 文本标签；由本开关统一管理，插件内不再单独控制",
     # 官Bot AppID
     "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
     "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
