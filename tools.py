@@ -661,6 +661,51 @@ def build_image_msg(event: Event, image_data: Union[bytes, str]):
 # ===== 群管理 API=====
 
 
+def get_image_meta(data: bytes) -> tuple[int, int, str]:
+    """从图片字节解析 (宽, 高, content_type)；无法识别时返回 (0, 0, image/png)。
+
+    供官Bot markdown 内嵌图片拼 ``![图 #宽px #高px](url)`` 用（平台语法
+    建议携带尺寸；0 尺寸客户端按原图处理，QQBot-Plugin 同样以 0 兜底）。
+    纯字节解析，无第三方依赖。
+    """
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        return (
+            int.from_bytes(data[16:20], "big"),
+            int.from_bytes(data[20:24], "big"),
+            "image/png",
+        )
+    if data[:3] == b"GIF" and len(data) >= 10:
+        return (
+            int.from_bytes(data[6:8], "little"),
+            int.from_bytes(data[8:10], "little"),
+            "image/gif",
+        )
+    if data[:2] == b"\xff\xd8":
+        width = height = 0
+        i = 2
+        while i + 9 <= len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker == 0xD8 or marker == 0x01 or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            if not marker or marker == 0xD9:
+                break
+            seg_len = int.from_bytes(data[i + 2 : i + 4], "big")
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                          0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                height = int.from_bytes(data[i + 5 : i + 7], "big")
+                width = int.from_bytes(data[i + 7 : i + 9], "big")
+                break
+            i += 2 + seg_len
+        return width, height, "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return 0, 0, "image/webp"
+    return 0, 0, "image/png"
+
+
 def get_qq_ref_idx(event: qq.Event) -> Optional[str]:
     """提取官Bot入站消息自身的 REFIDX（message_scene.ext 中 msg_idx= 的值）。
 

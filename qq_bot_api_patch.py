@@ -482,11 +482,14 @@ def patch_qq_send_reply_quote() -> bool:
       为载体发送**（msg_type=2）——实测群聊纯文本消息（msg_type=0）不
       解析该标签、整条显示原文，markdown 载体可正常渲染 @ 标签且无残留
       （2026-09 render_probe 探测结论）。C2C 不注入（官方 @某人 仅群聊/
-      文字子频道可用）。含媒体/富媒体段的消息不注入（markdown 与媒体
-      msg_type 互斥，转换会丢失媒体）；消息本身已是 markdown 时把标签
-      前置进其 content。正文中的 markdown 元字符未做转义——QQ 自定义
-      markdown 对不成对的 ``*`` ``_`` 等按原文显示，若实测出现斜体/标题
-      等样式串扰再补转义。
+      文字子频道可用）。图片与 @ 可共存于同一条 markdown：URL 型 image
+      段直接以 ``![图片 #Wpx #Hpx](url)`` 内嵌；字节型 file_image 段经
+      image_host 图床（基于 config.ip_address，与 ws 共用驱动端口）转
+      公网 URL 后内嵌。**降级**：无法内嵌时（视频/音频/文件段、图片字节
+      无法暴露公网 URL——未配置 ip_address 等），无论引用开关是否打开，
+      自动降级为引用模式（附带 message_reference 定位回复对象）。正文
+      中的 markdown 元字符未做转义——QQ 自定义 markdown 对不成对的
+      ``*`` ``_`` 等按原文显示，若实测出现斜体/标题等样式串扰再补转义。
     """
     from nonebot.adapters.qq import Bot as QQBot
     from nonebot.adapters.qq.event import (
@@ -506,16 +509,6 @@ def patch_qq_send_reply_quote() -> bool:
         prepend = []
         if isinstance(event, (GroupMessageCreateEvent, C2CMessageCreateEvent)):
             flags = _reply_flags()
-            if flags["reply_quote"]:
-                from .tools import get_qq_ref_idx
-
-                ref_idx = get_qq_ref_idx(event)
-                if ref_idx:
-                    # message_id 任意非 REFIDX 值都会被适配器回填为入站消息的 REFIDX
-                    prepend.append(MessageSegment.reference("0"))
-                    log("DEBUG", f"官Bot引用已附带 REFIDX={ref_idx[:32]}...")
-                else:
-                    log("DEBUG", "官Bot引用跳过：触发消息无 msg_idx(REFIDX)")
             msg = Message(message)
             # 剥离消息开头为旧 @ 格式预留的换行（与 OneBot 分支保持一致）
             if msg and msg[0].type == "text":
@@ -526,6 +519,7 @@ def patch_qq_send_reply_quote() -> bool:
                         + Message(list(msg[1:]))
                     )
             # @回复者：仅群聊，markdown 载体（纯文本消息不解析标签，实测）
+            at_degraded = False
             if flags["at_sender"] and isinstance(event, GroupMessageCreateEvent):
                 member_openid = getattr(
                     getattr(event, "author", None), "member_openid", None
@@ -537,10 +531,73 @@ def patch_qq_send_reply_quote() -> bool:
                         md_seg.data["markdown"].content = (
                             f"{tag}\n{md_seg.data['markdown'].content}"
                         )
-                    elif all(seg.type in ("text", "emoji") for seg in msg):
-                        body = msg.extract_content(escape_text=False)
-                        msg = Message([MessageSegment.markdown(f"{tag}\n{body}")])
-                    # else: 含媒体等富段，markdown 与媒体 msg_type 互斥，跳过 @
+                    elif all(
+                        seg.type in ("text", "emoji", "image", "file_image")
+                        for seg in msg
+                    ):
+                        from .image_host import serve_image
+                        from .tools import get_image_meta
+
+                        lines: list[str] = []
+                        buf: list[str] = []
+
+                        def _flush() -> None:
+                            if buf:
+                                lines.append("".join(buf))
+                                buf.clear()
+
+                        embed_failed = False
+                        for seg in msg:
+                            if seg.type in ("text", "emoji"):
+                                buf.append(
+                                    seg.data.get("text", "")
+                                    if seg.type == "text"
+                                    else str(seg)
+                                )
+                                continue
+                            width = height = 0  # URL 型图片宽高未知，0 兜底
+                            url = str(seg.data.get("url") or "")
+                            if seg.type == "file_image":
+                                content = seg.data.get("content")
+                                if not isinstance(content, (bytes, bytearray)):
+                                    embed_failed = True
+                                    break
+                                width, height, ctype = get_image_meta(
+                                    bytes(content)
+                                )
+                                url = serve_image(bytes(content), ctype) or ""
+                            if not url:
+                                embed_failed = True
+                                break
+                            _flush()
+                            lines.append(f"![图片 #{width}px #{height}px]({url})")
+                        _flush()
+                        if embed_failed:
+                            # 图片无法转公网 URL（未配置 ip_address 等）→ 降级引用
+                            at_degraded = True
+                            log("DEBUG", "官Bot@降级为引用模式（图片无法转公网URL）")
+                        else:
+                            body = "\n".join(lines)
+                            msg = Message(
+                                [MessageSegment.markdown(
+                                    f"{tag}\n{body}" if body else tag
+                                )]
+                            )
+                    else:
+                        # 视频/音频/文件等 markdown 无法内嵌的富媒体 → 降级引用
+                        at_degraded = True
+                        log("DEBUG", "官Bot@降级为引用模式（富媒体消息）")
+            # 引用：开关开启；或 @ 开启但富媒体降级时强制引用（保底定位回复对象）
+            if flags["reply_quote"] or at_degraded:
+                from .tools import get_qq_ref_idx
+
+                ref_idx = get_qq_ref_idx(event)
+                if ref_idx:
+                    # message_id 任意非 REFIDX 值都会被适配器回填为入站消息的 REFIDX
+                    prepend.append(MessageSegment.reference("0"))
+                    log("DEBUG", f"官Bot引用已附带 REFIDX={ref_idx[:32]}...")
+                else:
+                    log("DEBUG", "官Bot引用跳过：触发消息无 msg_idx(REFIDX)")
             if prepend:
                 msg = Message(prepend) + msg
             message = msg

@@ -86,18 +86,15 @@ async def init_koinoribot():
     nonebot.logger.info("Koinoribot NB2 初始化完成")
 
 
-# 8889 配置面板
+# 配置面板（挂载于驱动端口 /config，与 ws 共用端口）
 from . import config_web
+from . import image_host
 
 
 @driver.on_startup
 async def start_config_panel():
-    await config_web.start_config_web()
-
-
-@driver.on_shutdown
-async def stop_config_panel():
-    await config_web.stop_config_web()
+    config_web.mount_config_web()
+    image_host.mount_image_host()
 
 
 # 加载子插件

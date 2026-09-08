@@ -15,7 +15,9 @@ from html import escape
 from pathlib import Path
 from typing import Optional, Dict, Set, List
 
-from aiohttp import web
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.routing import Route, Router
 import nonebot.adapters.onebot.v11 as onebot_adapter
 from nonebot import on_command, get_driver
 from nonebot.plugin import PluginMetadata
@@ -82,10 +84,6 @@ def _init_tables():
 _cache_owner_to_bot: Dict[str, str] = {}
 _cache_bot_set: Set[str] = set()
 
-WHITELIST_WEB_HOST = "0.0.0.0"
-WHITELIST_WEB_PORT = 8888
-_whitelist_web_runner: Optional[web.AppRunner] = None
-_whitelist_web_site: Optional[web.TCPSite] = None
 
 
 def load_cache():
@@ -185,8 +183,9 @@ def get_ws_info() -> dict:
 
 
 def get_whitelist_web_url() -> str:
-    """获取白名单网页查询地址。"""
-    return f"http://{koinori_config.ip_address}:{WHITELIST_WEB_PORT}/"
+    """获取白名单网页查询地址（挂载于驱动端口 /white_list）。"""
+    port = get_driver().config.port or 8080
+    return f"http://{koinori_config.ip_address}:{port}/white_list/"
 
 
 # ================== 白名单WS查询网页 ==================
@@ -383,7 +382,7 @@ def _render_whitelist_page(
   <main>
     <h1>云冰祈 WS 查询</h1>
     <p class="subtitle">输入主人 QQ 与 bot QQ，查询审核状态和 WS 连接信息。</p>
-    <form method="post" action="/">
+    <form method="post" action="">
       <label>
         主人 QQ
         <input name="owner_qq" value="{safe_owner}" inputmode="numeric" pattern="[0-9]*" autocomplete="off" required>
@@ -528,78 +527,51 @@ def _render_whitelist_query_result(owner_qq: str, bot_qq: str) -> str:
     )
 
 
-async def _handle_whitelist_web_index(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
-    return web.Response(
-        text=_render_whitelist_page(),
-        content_type="text/html",
-        charset="utf-8",
-    )
+async def _handle_whitelist_web_index(request: Request) -> Response:
+    return HTMLResponse(_render_whitelist_page())
 
 
-async def _handle_whitelist_web_query(request: web.Request) -> web.Response:
-    data = await request.post()
+async def _handle_whitelist_web_query(request: Request) -> Response:
+    data = await request.form()
     owner_qq = str(data.get("owner_qq", "")).strip()
     bot_qq = str(data.get("bot_qq", "")).strip()
 
     result_html = _render_whitelist_query_result(owner_qq, bot_qq)
 
-    return web.Response(
-        text=_render_whitelist_page(owner_qq, bot_qq, result_html),
-        content_type="text/html",
-        charset="utf-8",
+    return HTMLResponse(_render_whitelist_page(owner_qq, bot_qq, result_html))
+
+
+async def _handle_whitelist_web_health(request: Request) -> Response:
+    return JSONResponse({"ok": True, "whitelist_size": get_whitelist_size()})
+
+
+def _build_whitelist_web_router() -> Router:
+    return Router(
+        routes=[
+            Route("/", _handle_whitelist_web_index, methods=["GET"]),
+            Route("/", _handle_whitelist_web_query, methods=["POST"]),
+            Route("/public_whitelist", _handle_whitelist_web_index, methods=["GET"]),
+            Route("/public_whitelist", _handle_whitelist_web_query, methods=["POST"]),
+            Route("/health", _handle_whitelist_web_health, methods=["GET"]),
+        ]
     )
 
 
-async def _handle_whitelist_web_health(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
-    return web.json_response({"ok": True, "whitelist_size": get_whitelist_size()})
+_whitelist_web_mounted = False
 
 
-def _create_whitelist_web_app() -> web.Application:
-    app = web.Application()
-    app.router.add_get("/", _handle_whitelist_web_index)
-    app.router.add_post("/", _handle_whitelist_web_query)
-    app.router.add_get("/public_whitelist", _handle_whitelist_web_index)
-    app.router.add_post("/public_whitelist", _handle_whitelist_web_query)
-    app.router.add_get("/health", _handle_whitelist_web_health)
-    return app
-
-
-async def _start_whitelist_web_server():
-    global _whitelist_web_runner, _whitelist_web_site
-
-    if _whitelist_web_runner is not None:
-        return
-
-    runner = web.AppRunner(_create_whitelist_web_app())
-    await runner.setup()
-    site = web.TCPSite(runner, WHITELIST_WEB_HOST, WHITELIST_WEB_PORT)
-
-    try:
-        await site.start()
-    except OSError as e:
-        await runner.cleanup()
-        logger.error(
-            f"[public_whitelist] WS查询网页启动失败，端口 {WHITELIST_WEB_PORT} 可能已被占用: {e}"
-        )
-        return
-
-    _whitelist_web_runner = runner
-    _whitelist_web_site = site
-    logger.info(
-        f"[public_whitelist] WS查询网页已启动: http://{WHITELIST_WEB_HOST}:{WHITELIST_WEB_PORT}/"
-    )
-
-
-async def _stop_whitelist_web_server():
-    global _whitelist_web_runner, _whitelist_web_site
-
-    runner = _whitelist_web_runner
-    _whitelist_web_runner = None
-    _whitelist_web_site = None
-
-    if runner is not None:
-        await runner.cleanup()
-        logger.info("[public_whitelist] WS查询网页已关闭")
+def _mount_whitelist_web() -> bool:
+    """把查询页挂到驱动端口的 /white_list（幂等，与 ws 共用端口）。"""
+    global _whitelist_web_mounted
+    if _whitelist_web_mounted:
+        return True
+    server_app = getattr(get_driver(), "server_app", None)
+    if server_app is None:
+        return False
+    server_app.mount("/white_list", _build_whitelist_web_router())
+    _whitelist_web_mounted = True
+    logger.info("[public_whitelist] WS查询网页已挂载: /white_list（与 ws 共用驱动端口）")
+    return True
 
 
 # ================== 跨平台私信 ==================
@@ -1205,9 +1177,4 @@ driver = get_driver()
 async def _init_whitelist():
     _init_tables()
     load_cache()
-    await _start_whitelist_web_server()
-
-
-@driver.on_shutdown
-async def _shutdown_whitelist():
-    await _stop_whitelist_web_server()
+    _mount_whitelist_web()

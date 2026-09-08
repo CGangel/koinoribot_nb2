@@ -1,10 +1,11 @@
-"""8889 配置面板（aiohttp）与“冰祈配置”指令。
+"""配置面板（挂载于驱动端口的 /config 路径）与“冰祈配置”指令。
 
 - 面板列出 config 表全部配置项（按分区分组），修改保存时走
   config_store.update_config：校验 → 写库 → 原地更新内存。
 - 密码取自 passwd.py 的 PANEL_PASSWORD；未配置时拒绝一切登录。
 - 防爆破：同一 IP 在 10 分钟窗口内密码错 5 次即锁定 15 分钟；
   会话 cookie 有效期 12 小时，仅保存在内存（重启后需重新登录）。
+- 与 OneBot ws 端口共用驱动端口（路径 /config），不单独开防火墙端口。
 """
 
 from __future__ import annotations
@@ -13,23 +14,19 @@ import asyncio
 import hmac
 import secrets
 import time
-from typing import Optional
-
-import aiohttp
-from aiohttp import web
 
 import nonebot
 from nonebot.adapters import Bot, Event
 from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.params import Depends
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.routing import Route, Router
 
 from . import config_store, su_manager
 from .config_store import config as koinori_config
 from .tools import get_uid
-
-CONFIG_WEB_HOST = "0.0.0.0"
-CONFIG_WEB_PORT = 8889
 
 SESSION_COOKIE = "koinori_cfg_session"
 SESSION_TTL = 12 * 3600
@@ -39,9 +36,6 @@ FAIL_WINDOW = 600
 FAIL_THRESHOLD = 5
 LOCK_DURATION = 900
 
-_runner: Optional[web.AppRunner] = None
-_site: Optional[web.TCPSite] = None
-
 _sessions: dict[str, float] = {}  # token -> 过期时间戳
 _fail_counts: dict[str, list[float]] = {}  # ip -> 窗口内失败时间戳
 _locked: dict[str, float] = {}  # ip -> 解锁时间戳
@@ -50,8 +44,8 @@ _locked: dict[str, float] = {}  # ip -> 解锁时间戳
 # ================== 会话与防爆破 ==================
 
 
-def _client_ip(request: web.Request) -> str:
-    return request.remote or "unknown"
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def _prune_expired(now: float) -> None:
@@ -111,24 +105,24 @@ def check_password(password: str) -> bool:
 # ================== HTTP handlers ==================
 
 
-async def _handle_login(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
+async def _handle_login(request: Request) -> Response:
     ip = _client_ip(request)
     if _is_locked(ip):
         retry_after = int(_locked.get(ip, 0) - time.time()) + 1
-        return web.json_response(
+        return JSONResponse(
             {"ok": False, "error": f"尝试过于频繁，已锁定，请 {retry_after} 秒后再试"},
-            status=429,
+            status_code=429,
             headers={"Retry-After": str(retry_after)},
         )
 
     try:
-        if request.content_type == "application/json":
+        if request.headers.get("content-type", "").startswith("application/json"):
             body = await request.json()
         else:
-            body = await request.post()
+            body = dict(await request.form())
         password = str(body.get("password", ""))
     except Exception:
-        return web.json_response({"ok": False, "error": "请求格式错误"}, status=400)
+        return JSONResponse({"ok": False, "error": "请求格式错误"}, status_code=400)
 
     # 小延迟抵抗高频爆破
     await asyncio.sleep(0.2)
@@ -137,116 +131,101 @@ async def _handle_login(request: web.Request) -> web.Response:  # NOSONAR - aioh
         remaining = _register_failure(ip)
         if remaining is None:
             retry_after = int(_locked.get(ip, 0) - time.time()) + 1
-            return web.json_response(
+            return JSONResponse(
                 {"ok": False, "error": f"尝试过于频繁，已锁定，请 {retry_after} 秒后再试"},
-                status=429,
+                status_code=429,
                 headers={"Retry-After": str(retry_after)},
             )
-        return web.json_response(
-            {"ok": False, "error": f"密码错误，剩余尝试次数 {remaining}"}, status=401
+        return JSONResponse(
+            {"ok": False, "error": f"密码错误，剩余尝试次数 {remaining}"}, status_code=401
         )
 
     _clear_failures(ip)
     token = _new_session()
-    response = web.json_response({"ok": True})
+    response = JSONResponse({"ok": True})
     response.set_cookie(
-        SESSION_COOKIE, token, max_age=SESSION_TTL, httponly=True, samesite="Lax"
+        SESSION_COOKIE, token, max_age=SESSION_TTL, httponly=True, samesite="lax"
     )
     logger.info(f"[config_web] IP {ip} 登录配置面板成功")
     return response
 
 
-async def _handle_logout(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
+async def _handle_logout(request: Request) -> Response:
     token = request.cookies.get(SESSION_COOKIE, "")
     _sessions.pop(token, None)
-    response = web.json_response({"ok": True})
-    response.del_cookie(SESSION_COOKIE)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(SESSION_COOKIE)
     return response
 
 
-async def _handle_get_config(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
+async def _handle_get_config(request: Request) -> Response:
     if not _valid_session(request):
-        return web.json_response({"ok": False, "error": "未登录"}, status=401)
-    reveal = request.query.get("reveal") == "1"
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    reveal = request.query_params.get("reveal") == "1"
     data = config_store.dump_for_panel(reveal=reveal)
-    return web.json_response({"ok": True, **data})
+    return JSONResponse({"ok": True, **data})
 
 
-async def _handle_post_config(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
+async def _handle_post_config(request: Request) -> Response:
     if not _valid_session(request):
-        return web.json_response({"ok": False, "error": "未登录"}, status=401)
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
     try:
         body = await request.json()
         updates = body.get("updates")
         if not isinstance(updates, dict) or not updates:
             raise ValueError("updates 应为非空对象")
     except Exception as e:
-        return web.json_response(
-            {"ok": False, "error": f"请求格式错误: {e}"}, status=400
+        return JSONResponse(
+            {"ok": False, "error": f"请求格式错误: {e}"}, status_code=400
         )
 
     try:
         changed = config_store.update_config(updates)
     except ValueError as e:
-        return web.json_response({"ok": False, "error": str(e)}, status=400)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
     logger.info(f"[config_web] 配置已更新: {changed}")
-    return web.json_response({"ok": True, "updated": changed})
+    return JSONResponse({"ok": True, "updated": changed})
 
 
-async def _handle_health(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
-    return web.json_response({"ok": True})
+async def _handle_health(request: Request) -> Response:
+    return JSONResponse({"ok": True})
 
 
-async def _handle_index(request: web.Request) -> web.Response:  # NOSONAR - aiohttp requires an async handler
-    return web.Response(
-        text=_PAGE_HTML, content_type="text/html", charset="utf-8"
+async def _handle_index(request: Request) -> Response:
+    return HTMLResponse(_PAGE_HTML)
+
+
+def build_router() -> Router:
+    return Router(
+        routes=[
+            Route("/", _handle_index, methods=["GET"]),
+            Route("/health", _handle_health, methods=["GET"]),
+            Route("/login", _handle_login, methods=["POST"]),
+            Route("/logout", _handle_logout, methods=["POST"]),
+            Route("/api/config", _handle_get_config, methods=["GET"]),
+            Route("/api/config", _handle_post_config, methods=["POST"]),
+        ]
     )
 
 
-def create_config_web_app() -> web.Application:
-    app = web.Application()
-    app.router.add_get("/", _handle_index)
-    app.router.add_get("/health", _handle_health)
-    app.router.add_post("/login", _handle_login)
-    app.router.add_post("/logout", _handle_logout)
-    app.router.add_get("/api/config", _handle_get_config)
-    app.router.add_post("/api/config", _handle_post_config)
-    return app
+_mounted = False
 
 
-async def start_config_web() -> None:
-    global _runner, _site
-    if _runner is not None:
-        return
-
-    runner = web.AppRunner(create_config_web_app())
-    await runner.setup()
-    site = web.TCPSite(runner, CONFIG_WEB_HOST, CONFIG_WEB_PORT)
-    try:
-        await site.start()
-    except OSError as e:
-        await runner.cleanup()
-        logger.error(
-            f"[config_web] 配置面板启动失败，端口 {CONFIG_WEB_PORT} 可能已被占用: {e}"
-        )
-        return
-
-    _runner, _site = runner, site
+def mount_config_web() -> bool:
+    """把面板挂到驱动端口的 /config（幂等）。非 HTTP 服务端驱动返回 False。"""
+    global _mounted
+    if _mounted:
+        return True
+    server_app = getattr(nonebot.get_driver(), "server_app", None)
+    if server_app is None:
+        return False
+    server_app.mount("/config", build_router())
+    _mounted = True
     if not config_store.get_panel_password():
         logger.warning("[config_web] passwd.py 未配置 PANEL_PASSWORD，面板将拒绝登录")
-    logger.info(
-        f"[config_web] 配置面板已启动: http://{CONFIG_WEB_HOST}:{CONFIG_WEB_PORT}/"
-    )
-
-
-async def stop_config_web() -> None:
-    global _runner, _site
-    runner, _runner, _site = _runner, None, None
-    if runner is not None:
-        await runner.cleanup()
-        _sessions.clear()
-        logger.info("[config_web] 配置面板已停止")
+    logger.info("[config_web] 配置面板已挂载: /config（与 ws 共用驱动端口）")
+    return True
 
 
 # ================== “冰祈配置”指令 ==================
@@ -258,7 +237,8 @@ def panel_base_url() -> str:
         if koinori_config.public_bot and koinori_config.ip_address
         else "127.0.0.1"
     )
-    return f"http://{host}:{CONFIG_WEB_PORT}/"
+    port = nonebot.get_driver().config.port or 8080
+    return f"http://{host}:{port}/config/"
 
 
 def owner_level_exists() -> bool:
@@ -451,7 +431,7 @@ function flash(msg, isErr) {
 
 async function login() {
   const msg = document.getElementById('msg');
-  const r = await fetch('/login', {method: 'POST',
+  const r = await fetch('login', {method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({password: document.getElementById('pwd').value})});
   const j = await r.json().catch(() => ({}));
@@ -470,7 +450,7 @@ function toggleSecret() { load(!revealed); }
 
 async function load(reveal) {
   if (reveal === undefined) reveal = revealed;
-  const r = await fetch('/api/config' + (reveal ? '?reveal=1' : ''));
+  const r = await fetch('api/config' + (reveal ? '?reveal=1' : ''));
   if (r.status === 401) { show(false); return; }
   data = await r.json();
   revealed = reveal;
@@ -679,7 +659,7 @@ async function save() {
     updates[f.key] = collect(f);
   }
   if (!Object.keys(updates).length) { flash('没有修改'); return; }
-  const r = await fetch('/api/config', {method: 'POST',
+  const r = await fetch('api/config', {method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({updates})});
   const j = await r.json().catch(() => ({}));
@@ -688,7 +668,7 @@ async function save() {
 }
 
 async function logout() {
-  await fetch('/logout', {method: 'POST'});
+  await fetch('logout', {method: 'POST'});
   show(false);
 }
 
