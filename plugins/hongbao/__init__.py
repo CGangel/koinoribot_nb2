@@ -183,7 +183,7 @@ async def handle_qiang_hongbao(
     
     # 检查是否已抢过
     if uid in session.claimed_uids:
-        await qiang_hongbao.finish("你已经抢过红包了！", at_sender=True)
+        await qiang_hongbao.finish("你已经抢过红包了！")
     
     # 抢红包
     if session.packets:
@@ -191,7 +191,7 @@ async def handle_qiang_hongbao(
         session.claimed_uids.append(uid)
         money.gold += amount
         
-        await qiang_hongbao.send(f"恭喜抢到 {amount} 金币~", at_sender=True)
+        await qiang_hongbao.send(f"恭喜抢到 {amount} 金币~")
         
         # 检查是否抢完
         if not session.packets:

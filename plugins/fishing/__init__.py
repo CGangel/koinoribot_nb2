@@ -157,7 +157,7 @@ async def handle_single_fish(
             auto_buy = True
         else:
             await single_fish_cmd.finish(
-                "金币或鱼饵不足喔...\n发送 领低保 来获取启动资金吧~", at_sender=True
+                "金币或鱼饵不足喔...\n发送 领低保 来获取启动资金吧~"
             )
 
     freq.start_cd(uid)
@@ -177,7 +177,7 @@ async def handle_single_fish(
     if auto_buy:
         msg = f"(已自动购买鱼饵-{bait_cost}金币)\n" + msg
 
-    await single_fish_cmd.finish(msg, at_sender=True)
+    await single_fish_cmd.finish(msg)
 
 
 # ----- 十连钓鱼 -----
@@ -288,7 +288,7 @@ async def handle_hundred_thousand_fish(
     uid: int = Depends(get_uid),
     ) -> None:
     if not is_su(uid):
-        await hundred_thousand_fish_cmd.finish("权限不足", at_sender=True)  
+        await hundred_thousand_fish_cmd.finish("权限不足")  
     await FishingManager.multi_fishing(
         uid,
         matcher,
@@ -315,21 +315,21 @@ async def handle_buy_bait(
     num = int(message) if message.isdigit() else 1
 
     if num > 50000000:
-        await buy_bait_cmd.finish("一次只能购买50000000个鱼饵喔", at_sender=True)
+        await buy_bait_cmd.finish("一次只能购买50000000个鱼饵喔")
 
     if num <= 0:
-        await buy_bait_cmd.finish("数量必须大于0", at_sender=True)
+        await buy_bait_cmd.finish("数量必须大于0")
 
     cost = num * config.bait_price
 
     user_gold = money.gold
     if user_gold < cost:
-        await buy_bait_cmd.finish("金币不足喔...", at_sender=True)
+        await buy_bait_cmd.finish("金币不足喔...")
 
     money.gold -= cost
     await FishingManager.increase_value(uid, "fish", "🍙", num)
 
-    await buy_bait_cmd.finish(f"成功购买{num}个鱼饵~(金币-{cost})", at_sender=True)
+    await buy_bait_cmd.finish(f"成功购买{num}个鱼饵~(金币-{cost})")
 
 
 # ----- 背包 -----
@@ -340,7 +340,7 @@ bag_cmd = on_command("背包", aliases={"我的背包"}, priority=5, block=True)
 async def handle_bag(uid: int = Depends(get_uid)) -> None:
     user_info = await FishingManager.get_user_info(uid)
 
-    msg = "背包：\n"
+    msg = "你的背包：\n"
     items = ""
     for item, count in user_info["fish"].items():
         if count > 0:
@@ -349,7 +349,7 @@ async def handle_bag(uid: int = Depends(get_uid)) -> None:
     if not items:
         items = "空空如也..."
 
-    await bag_cmd.finish(msg + items.strip(), at_sender=True)
+    await bag_cmd.finish(msg + items.strip())
 
 
 # ----- 出售 -----
@@ -365,18 +365,18 @@ async def handle_sell(
     parts = message.split()
 
     if not parts:
-        await sell_cmd.finish("用法: 出售 鱼emoji [数量]", at_sender=True)
+        await sell_cmd.finish("用法: 出售 鱼emoji [数量]")
 
     fish = parts[0]
     if fish not in fish_list() + ["🍙"]:
-        await sell_cmd.finish("这不是可出售的物品", at_sender=True)
+        await sell_cmd.finish("这不是可出售的物品")
 
     num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
 
     user_info = await FishingManager.get_user_info(uid)
 
     if not user_info["fish"].get(fish) or user_info["fish"][fish] <= 0:
-        await sell_cmd.finish(f"你没有{fish}喔", at_sender=True)
+        await sell_cmd.finish(f"你没有{fish}喔")
 
     if num > user_info["fish"][fish]:
         num = user_info["fish"][fish]
@@ -388,7 +388,7 @@ async def handle_sell(
     await FishingManager.save_user_info(uid, user_info)
 
     await sell_cmd.finish(
-        f"\n成功出售{num}条{fish}，得到{get_golds}枚金币~", at_sender=True
+        f"成功出售{num}条{fish}，得到{get_golds}枚金币~"
     )
 
 
@@ -421,10 +421,9 @@ async def handle_sell_small(
         await FishingManager.save_user_info(uid, user_info)
         await sell_small_cmd.finish(
             "\n".join(result) + f"\n\n共获得{total_gold}金币~",
-            at_sender=True,
         )
     else:
-        await sell_small_cmd.finish("没有可出售的小鱼", at_sender=True)
+        await sell_small_cmd.finish("没有可出售的小鱼")
 
 
 # ----- 一键出售 -----
@@ -456,10 +455,9 @@ async def handle_sell_all(
         await FishingManager.save_user_info(uid, user_info)
         await sell_all_cmd.finish(
             "\n".join(result) + f"\n\n共获得{total_gold}金币~",
-            at_sender=True,
         )
     else:
-        await sell_all_cmd.finish("没有可出售的鱼", at_sender=True)
+        await sell_all_cmd.finish("没有可出售的鱼")
 
 
 # ----- 放生 -----
@@ -474,7 +472,7 @@ async def handle_free(
     parts = message.split()
 
     if not parts or parts[0] not in fish_list():
-        await free_cmd.finish("用法: 放生 鱼emoji [数量]", at_sender=True)
+        await free_cmd.finish("用法: 放生 鱼emoji [数量]")
 
     fish = parts[0]
     num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
@@ -482,7 +480,7 @@ async def handle_free(
     user_info = await FishingManager.get_user_info(uid)
 
     if not user_info["fish"].get(fish) or user_info["fish"][fish] <= 0:
-        await free_cmd.finish(f"你没有{fish}喔", at_sender=True)
+        await free_cmd.finish(f"你没有{fish}喔")
 
     if num > user_info["fish"][fish]:
         num = user_info["fish"][fish]
@@ -509,7 +507,6 @@ async def handle_free(
     addition = f"\n✨ {crystals}颗水之心合成成功！" if crystals > 0 else ""
     await free_cmd.finish(
         f"{num}条{fish}成功回到水里，获得{get_frags}个水心碎片~{addition}",
-        at_sender=True,
     )
 
 
@@ -531,7 +528,6 @@ async def handle_stat(uid: int = Depends(get_uid)) -> None:
 
     await stat_cmd.finish(
         f"📊 钓鱼统计：\n{free_msg}\n{sell_msg}\n{total_msg}",
-        at_sender=True,
     )
 
 # ===== 漂流瓶功能 =====
@@ -549,18 +545,18 @@ async def handle_buy_bottle(
     num = int(message) if message.isdigit() else 1
 
     if num > 10:
-        await buy_bottle_cmd.finish("一次只能购买10个漂流瓶喔", at_sender=True)
+        await buy_bottle_cmd.finish("一次只能购买10个漂流瓶喔")
 
     cost = num * config.bottle_price
 
     user_gold = money.gold
     if user_gold < cost:
-        await buy_bottle_cmd.finish("金币不足喔...", at_sender=True)
+        await buy_bottle_cmd.finish("金币不足喔...")
 
     money.gold -= cost
     await FishingManager.increase_value(uid, "fish", "✉", num)
 
-    await buy_bottle_cmd.finish(f"成功买下{num}个漂流瓶~(金币-{cost})", at_sender=True)
+    await buy_bottle_cmd.finish(f"成功买下{num}个漂流瓶~(金币-{cost})")
 
 
 # ----- 合成漂流瓶 -----
@@ -581,7 +577,6 @@ async def handle_compound_bottle(
     if user_info["fish"].get("🔮", 0) < crystal_need:
         await compound_bottle_cmd.finish(
             f"需要{crystal_need}个水之心才能合成{num}个漂流瓶",
-            at_sender=True,
         )
 
     await FishingManager.decrease_value(uid, "fish", "🔮", crystal_need, user_info)
@@ -589,7 +584,7 @@ async def handle_compound_bottle(
     await FishingManager.save_user_info(uid, user_info)
 
     await compound_bottle_cmd.finish(
-        f"{crystal_need}个🔮融合成了{num}个漂流瓶！", at_sender=True
+        f"{crystal_need}个🔮融合成了{num}个漂流瓶！"
     )
 
 
@@ -612,14 +607,14 @@ async def handle_throw_bottle(
     user_info = await FishingManager.get_user_info(uid)
 
     if user_info["fish"].get("✉", 0) <= 0:
-        await throw_bottle_cmd.finish("背包里没有漂流瓶喔", at_sender=True)
+        await throw_bottle_cmd.finish("背包里没有漂流瓶喔")
 
     content = args.extract_plain_text()
     if content == "":
-        await throw_bottle_cmd.finish("漂流瓶内容不能为空喔", at_sender=True)
+        await throw_bottle_cmd.finish("漂流瓶内容不能为空喔")
 
     if len(content) > 60:
-        await throw_bottle_cmd.finish("内容太长了（最多60字）", at_sender=True)
+        await throw_bottle_cmd.finish("内容太长了（最多60字）")
 
     # 扣除漂流瓶
     await FishingManager.decrease_value(uid, "fish", "✉", 1, user_info)
@@ -632,7 +627,6 @@ async def handle_throw_bottle(
 
     await throw_bottle_cmd.finish(
         f"你将漂流瓶放入水中，目送它漂向诗与远方...\n(漂流瓶ID: {bottle_id})",
-        at_sender=True,
     )
 
 
@@ -651,20 +645,20 @@ async def handle_pick_bottle(bot: Bot, event: Event, uid: int = Depends(get_uid)
 
     if user_info["fish"].get("🔮", 0) < config.crystal_to_net:
         await pick_bottle_cmd.finish(
-            f"捡漂流瓶需要{config.crystal_to_net}个水之心喔", at_sender=True
+            f"捡漂流瓶需要{config.crystal_to_net}个水之心喔"
         )
 
     bottle_count = BottleManager.get_bottle_amount()
     if bottle_count < 5:
         await pick_bottle_cmd.finish(
-            f"漂流瓶太少了（{bottle_count}/5个）", at_sender=True
+            f"漂流瓶太少了（{bottle_count}/5个）"
         )
 
     # 随机捞取
     bottle_id, bottle = BottleManager.pick_random_bottle()
 
     if bottle_id is None:
-        await pick_bottle_cmd.finish("没有可捞取的漂流瓶", at_sender=True)
+        await pick_bottle_cmd.finish("没有可捞取的漂流瓶")
 
     # 扣除水之心
     await FishingManager.decrease_value(
@@ -741,15 +735,15 @@ async def handle_pick_by_id(
     uid: int = Depends(get_uid),
 ) -> None:
     if not is_su(uid):
-        await pick_by_id_cmd.finish("权限不足", at_sender=True)
+        await pick_by_id_cmd.finish("权限不足")
 
     bottle_id_str = args.extract_plain_text().strip()
     if not bottle_id_str.isdigit():
-        await pick_by_id_cmd.finish("用法: 捡指定漂流瓶 漂流瓶ID", at_sender=True)
+        await pick_by_id_cmd.finish("用法: 捡指定漂流瓶 漂流瓶ID")
 
     bottle = BottleManager.get_bottle_by_id(bottle_id_str)
     if bottle is None:
-        await pick_by_id_cmd.finish(f"找不到漂流瓶 #{bottle_id_str}", at_sender=True)
+        await pick_by_id_cmd.finish(f"找不到漂流瓶 #{bottle_id_str}")
 
     create_time = datetime.datetime.fromtimestamp(bottle["time"]).strftime(
         "%Y-%m-%d %H:%M"
@@ -800,30 +794,30 @@ async def handle_comment_bottle(
     user_gold = money.gold
     if user_gold < config.comment_price:
         await comment_bottle_cmd.finish(
-            f"评论漂流瓶需要{config.comment_price}枚金币", at_sender=True
+            f"评论漂流瓶需要{config.comment_price}枚金币"
         )
 
     message = args.extract_plain_text()
     parts = message.split(" ", 1)
 
     if len(parts) != 2:
-        await comment_bottle_cmd.finish("用法: 评论 漂流瓶ID 内容", at_sender=True)
+        await comment_bottle_cmd.finish("用法: 评论 漂流瓶ID 内容")
 
     bottle_id = parts[0]
     content = parts[1]
 
     if len(content) > 20:
-        await comment_bottle_cmd.finish("评论内容太长了（最多20字）", at_sender=True)
+        await comment_bottle_cmd.finish("评论内容太长了（最多20字）")
 
     # 使用 BottleManager 添加评论
     if not BottleManager.add_comment(bottle_id, uid, content):
-        await comment_bottle_cmd.finish("找不到这个漂流瓶", at_sender=True)
+        await comment_bottle_cmd.finish("找不到这个漂流瓶")
 
     money.gold -= config.comment_price
     comm_freq.start_cd(uid)
 
     await comment_bottle_cmd.finish(
-        f"评论成功！(金币-{config.comment_price})", at_sender=True
+        f"评论成功！(金币-{config.comment_price})"
     )
 
 
@@ -837,16 +831,16 @@ async def handle_delete_bottle(
     uid: int = Depends(get_uid),
 ) -> None:
     if not is_su(uid):
-        await delete_bottle_cmd.finish("权限不足", at_sender=True)
+        await delete_bottle_cmd.finish("权限不足")
 
     bottle_id_str = args.extract_plain_text().strip()
     if not bottle_id_str.isdigit():
-        await delete_bottle_cmd.finish("用法: 删除漂流瓶 漂流瓶ID", at_sender=True)
+        await delete_bottle_cmd.finish("用法: 删除漂流瓶 漂流瓶ID")
 
     if BottleManager.delete_bottle(bottle_id_str):
-        await delete_bottle_cmd.finish(f"漂流瓶 #{bottle_id_str} 已删除", at_sender=True)
+        await delete_bottle_cmd.finish(f"漂流瓶 #{bottle_id_str} 已删除")
     else:
-        await delete_bottle_cmd.finish(f"漂流瓶 #{bottle_id_str} 不存在或已被删除", at_sender=True)
+        await delete_bottle_cmd.finish(f"漂流瓶 #{bottle_id_str} 不存在或已被删除")
 
 
 # ===== 初始化 =====

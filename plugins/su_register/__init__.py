@@ -85,23 +85,20 @@ async def handle_register_su(
         current_level = get_su_level(uid)
         await register_su_cmd.finish(
             f"你已经是 SU 用户了（权限等级: {current_level}）",
-            at_sender=True
         )
 
     # 解析激活码
     activation_code = args.extract_plain_text().strip()
     if not activation_code:
         await register_su_cmd.finish(
-            "\n请提供激活码！\n用法: 注册su 激活码",
-            at_sender=True
+            "请提供激活码！\n用法: 注册su 激活码",
         )
 
     # 验证激活码
     activation_level = await _validate_activation_code(activation_code, uid)
     if activation_level is None:
         await register_su_cmd.finish(
-            "\n激活码无效！（使用 注册激活码 可以获取你的激活码）",
-            at_sender=True
+            "激活码无效！（使用 注册激活码 可以获取你的激活码）",
         )
 
     # 注册为验证服务返回的 SU 等级
@@ -120,10 +117,8 @@ async def handle_register_su(
             )
         await register_su_cmd.finish(
             success_msg,
-            at_sender=True
         )
     else:
         await register_su_cmd.finish(
             "注册失败，请稍后再试或联系管理员。",
-            at_sender=True
         )

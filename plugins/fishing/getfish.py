@@ -284,7 +284,7 @@ class FishingManager:
         cooldown_manager,
     ):
         if config.star_price and wallet.starstone < star_cost:
-            await matcher.finish("星星不够用了呢...", at_sender=True)
+            await matcher.finish("星星不够用了呢...")
 
         user_info = await cls.get_user_info(uid)
         if cooldown_manager.left_time(uid) > 0:
@@ -294,7 +294,7 @@ class FishingManager:
         auto_buy = user_info['fish'].get('🍙', 0) < cost
         if auto_buy:
             if wallet.gold < actual_cost:
-                await matcher.finish("金币或鱼饵不足喔...", at_sender=True)
+                await matcher.finish("金币或鱼饵不足喔...")
             wallet.gold -= actual_cost
         return user_info, auto_buy
 
@@ -315,7 +315,6 @@ class FishingManager:
         rest_count = limit_count - fish_count
         await matcher.send(
             f'\n今日钓鱼次数已达上限喔...你还能钓鱼{rest_count}次。\n明天再来吧~',
-            at_sender=True,
         )
         if auto_buy:
             wallet.gold += actual_cost

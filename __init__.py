@@ -23,6 +23,12 @@ _migrated_superusers = config_store.init_config_store(
 )
 config_store.ensure_passwd_file(_migrated_superusers)
 
+# 适配器补丁（QQ 群管理 API/入群事件/模型兼容/被动引用；OneBot 被动引用）。
+# 原 mlbot 根目录 qq_bot_api_patch.py，现随插件加载应用，全部幂等。
+from . import qq_bot_api_patch as _adapter_patch
+
+_adapter_patch.apply_all()
+
 # 导入核心模块
 from . import uid_manager
 from . import money

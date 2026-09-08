@@ -39,7 +39,8 @@ class KoinoribotConfig(BaseModel):
     join_request_keywords: list = ["abc", "def"]  # 入群验证内容含任一关键词则自动放行
     join_request_bots: list = []                  # 允许自动审批的 bot QQ 号列表（空列表不审批）
     join_request_bot_qq: dict = {}                # 官Bot appid→QQ号 绑定（官Bot self_id 是 appid）
-    qqbot_reply_quote: bool = False               # 官Bot 被动回复自动引用用户消息（引用形式展示）
+    reply_quote: bool = False                     # 被动回复自动引用触发消息（OneBot/官Bot 双协议）
+    at_sender: bool = True                        # 回复时 @ 触发者并换行（仅 OneBot；官Bot 平台暂不支持）
 
     # ================== 官Bot AppID ==================
     qqbot_appid: str = ""                                              # 官方Bot AppID，用于通过 openid 获取用户昵称和头像
@@ -113,7 +114,7 @@ class KoinoribotConfig(BaseModel):
 _FIELD_SECTIONS: dict[str, list[str]] = {
     "群管理": [
         "join_request_auto_approve", "join_request_keywords", "join_request_bots",
-        "join_request_bot_qq", "qqbot_reply_quote",
+        "join_request_bot_qq", "reply_quote", "at_sender",
     ],
     "官Bot AppID": ["qqbot_appid", "qqbot_openid_api"],
     "钓鱼配置": [
@@ -145,7 +146,8 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "join_request_keywords": "入群自动放行关键词（每项一行）；验证消息或问答答案含任一关键词即命中",
     "join_request_bots": "允许自动审批的 bot 标识，QQ 号或官Bot appid 均可（每项一行）；空列表时所有 bot 均不自动审批",
     "join_request_bot_qq": "官Bot 的 appid→QQ号 绑定；appid 在 bot 连接时自动登记（值为空），只需补填对应 QQ 号；白名单填 appid 时可不填 QQ 号",
-    "qqbot_reply_quote": "官Bot 群聊/单聊被动回复自动以引用形式回复用户消息；引用内容为触发回复的那条消息（被动回复 5 分钟窗口内有效）",
+    "reply_quote": "双协议（OneBot/官Bot）被动回复自动以引用形式回复触发消息；OneBot 用原生 reply 消息段、官Bot 用 message_reference（线上已验证）；官Bot 被动回复 5 分钟窗口内有效",
+    "at_sender": "回复消息时 @ 触发用户并换行（@用户+换行+正文）；仅 OneBot 协议生效，官Bot 平台暂不支持渲染 bot 发送的 @（官Bot 回复保持纯文本）；由本开关统一管理，插件内不再单独控制",
     # 官Bot AppID
     "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
     "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
@@ -389,6 +391,33 @@ def _migrate_legacy_file(path: Path) -> list[int]:
     return [int(uid) for uid in superusers]
 
 
+# 字段改名映射：旧键的值在 stale 清理前迁入新键（避免被当废弃行删除）
+_KEY_RENAMES: dict[str, str] = {"qqbot_reply_quote": "reply_quote"}
+
+
+def _rename_legacy_keys(conn) -> None:
+    valid_keys = KoinoribotConfig.model_fields
+    for old, new in _KEY_RENAMES.items():
+        if new not in valid_keys:
+            continue
+        row = conn.execute(
+            "SELECT value, updated_at FROM config WHERE key = ?", (old,)
+        ).fetchone()
+        if row is None:
+            continue
+        exists = conn.execute(
+            "SELECT 1 FROM config WHERE key = ?", (new,)
+        ).fetchone()
+        if exists is None:
+            conn.execute(
+                "INSERT INTO config (key, value, updated_at) VALUES (?, ?, ?)",
+                (new, row["value"], row["updated_at"]),
+            )
+            logger.info(f"[config_store] 配置项改名迁移：{old} → {new}（值已保留）")
+        conn.execute("DELETE FROM config WHERE key = ?", (old,))
+        conn.commit()
+
+
 def init_config_store(
     db_path: Optional[str] = None,
     legacy_config_path: Optional[Path] = None,
@@ -404,6 +433,8 @@ def init_config_store(
 
     with _connect() as conn:
         _ensure_table(conn)
+        # 字段改名迁移（需先于 stale 清理，保留旧键的值）
+        _rename_legacy_keys(conn)
         # 清理已从 schema 删除的字段残留行
         valid_keys = tuple(KoinoribotConfig.model_fields)
         placeholders = ",".join("?" * len(valid_keys))

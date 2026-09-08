@@ -1,6 +1,6 @@
 """群管理子插件（初步）：入群申请自动审批（事件驱动）。
 
-QQBot 侧：GROUP_JOIN_REQUEST 推送事件（mlbot 根目录 qq_bot_api_patch.py
+QQBot 侧：GROUP_JOIN_REQUEST 推送事件（koinoribot_nb2/qq_bot_api_patch.py
 注册的本地补丁，需 .env QQ_BOTS.intent 开启 "group_members": true）。
 按官方文档，查询申请列表与事件推送都要求 bot 为群管理员，因此能收到
 事件即已具备管理员身份，无需再二次校验。
@@ -286,7 +286,7 @@ def _qq_join_request_event_cls():
         try:
             from nonebot.adapters.qq.event import GroupJoinRequestEvent
         except ImportError:
-            from qq_bot_api_patch import GroupJoinRequestEvent
+            from ...qq_bot_api_patch import GroupJoinRequestEvent
         _qq_join_request_cls_cache = GroupJoinRequestEvent
     return _qq_join_request_cls_cache
 

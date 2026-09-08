@@ -661,13 +661,31 @@ def build_image_msg(event: Event, image_data: Union[bytes, str]):
 # ===== 群管理 API=====
 
 
+def get_qq_ref_idx(event: qq.Event) -> Optional[str]:
+    """提取官Bot入站消息自身的 REFIDX（message_scene.ext 中 msg_idx= 的值）。
+
+    该值即引用回复接口 message_reference.message_id 需要的内容（官方文档：
+    非机器人发的消息，从消息事件 MessageScene 的 ext 数组 msg_idx 字段获取）。
+    属平台报文语义，与适配器版本无关。
+    """
+    scene = getattr(event, "message_scene", None)
+    if scene is None:
+        return None
+    idx = next(
+        (ext.partition("=")[-1] for ext in scene.ext if ext.startswith("msg_idx=")),
+        "",
+    )
+    return idx or None
+
+
+
 
 def _load_qq_set_mute_state():
     """加载官Bot禁言请求模型：优先本地补丁，适配器升级后回退原生模型。"""
     try:
-        from qq_bot_api_patch import SetMemberMuteState
-    except ImportError:
         from nonebot.adapters.qq.models.qq import SetMemberMuteState
+    except ImportError:
+        from .qq_bot_api_patch import SetMemberMuteState
     return SetMemberMuteState
 
 

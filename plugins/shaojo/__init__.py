@@ -267,7 +267,7 @@ async def handle_shaojo_image_command(
 async def handle_other_shaojo(bot: Bot, event: Event) -> None:
     targets = _extract_at_targets(event)
     if not targets:
-        await other_shaojo_cmd.finish("要艾特到对方才知道是什么少女喔~", at_sender=True)
+        await other_shaojo_cmd.finish("要艾特到对方才知道是什么少女喔~")
 
     for target_uid, target_external_id, _platform in targets:
         if target_external_id == str(bot.self_id):
@@ -282,5 +282,4 @@ async def handle_other_shaojo(bot: Bot, event: Event) -> None:
             logger.error(f"今天也是少女功能发送失败，可能被风控: {exc}")
             await other_shaojo_cmd.finish(
                 "变身结果发送失败，冰祈可能被风控...",
-                at_sender=True,
             )

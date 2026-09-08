@@ -283,26 +283,26 @@ buy_stock_cmd = on_command("买入", priority=5, block=True)
 async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), args: Message = CommandArg()):
     # 检查是否在赌博中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await buy_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成游戏或'见好就收'。", at_sender=True)
+        await buy_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成游戏或'见好就收'。")
     
     # 解析参数
     arg_text = args.extract_plain_text().strip()
     parts = arg_text.split()
     
     if not parts or len(parts) < 2:
-        await buy_stock_cmd.finish("无法解析购买指令，请检查格式。(例：买入 萝莉股 10)", at_sender=True)
+        await buy_stock_cmd.finish("无法解析购买指令，请检查格式。(例：买入 萝莉股 10)")
     
     stock_name = parts[0]
     try:
         amount_to_buy = int(parts[1])
     except ValueError:
-        await buy_stock_cmd.finish("购买数量必须是正整数", at_sender=True)
+        await buy_stock_cmd.finish("购买数量必须是正整数")
     
     if amount_to_buy <= 0:
-        await buy_stock_cmd.finish("购买数量必须是正整数", at_sender=True)
+        await buy_stock_cmd.finish("购买数量必须是正整数")
     
     if stock_name not in STOCKS:
-        await buy_stock_cmd.finish(f"未知股票: {stock_name}", at_sender=True)
+        await buy_stock_cmd.finish(f"未知股票: {stock_name}")
     
     # 检查持仓限制
     user_portfolio = await get_user_portfolio(uid)
@@ -313,18 +313,18 @@ async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), 
     
     if len(user_portfolio) >= max_type and stock_name not in user_portfolio:
         await buy_stock_cmd.finish(
-            f"每位用户最多持有{max_type}种不同股票，您已持有{len(user_portfolio)}种。", at_sender=True)
+            f"每位用户最多持有{max_type}种不同股票，您已持有{len(user_portfolio)}种。")
     
     if current_holding >= max_count:
         await buy_stock_cmd.finish(
-            f"每种股票持有上限为{max_count}股，请先卖出部分。", at_sender=True)
+            f"每种股票持有上限为{max_count}股，请先卖出部分。")
     
     if current_holding + amount_to_buy > max_count:
         amount_to_buy = max_count - current_holding
     
     current_price = await get_current_stock_price(stock_name)
     if current_price is None:
-        await buy_stock_cmd.finish(f"{stock_name} 当前无法交易", at_sender=True)
+        await buy_stock_cmd.finish(f"{stock_name} 当前无法交易")
     
     # 计算成本
     base_cost = current_price * amount_to_buy
@@ -335,7 +335,7 @@ async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), 
     if user_gold < total_cost:
         await buy_stock_cmd.finish(
             f"金币不足！购买{amount_to_buy}股{stock_name}需要{total_cost}金币"
-            f"（含{fee}手续费），您只有{user_gold}金币。", at_sender=True)
+            f"（含{fee}手续费），您只有{user_gold}金币。")
     
     # 执行购买
     money.gold -= total_cost
@@ -345,10 +345,10 @@ async def handle_buy_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), 
             f"股票: {stock_name}\n"
             f"数量: {amount_to_buy}股\n"
             f"单价: {current_price:.2f}金币\n"
-            f"费用: {total_cost}金币（含{fee}手续费）", at_sender=True)
+            f"费用: {total_cost}金币（含{fee}手续费）")
 
     money.gold += total_cost
-    await buy_stock_cmd.finish("购买失败，金币已退回。", at_sender=True)
+    await buy_stock_cmd.finish("购买失败，金币已退回。")
 
 
 # ===== 卖出股票 =====
@@ -358,13 +358,13 @@ sell_stock_cmd = on_command("卖出", priority=5, block=True)
 async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid), args: Message = CommandArg()):
     # 检查是否在赌博中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await sell_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成游戏或'见好就收'。", at_sender=True)
+        await sell_stock_cmd.finish("⚠️ 你正在进行幸运游戏，无法进行股票交易。请先完成游戏或'见好就收'。")
     
     arg_text = args.extract_plain_text().strip()
     parts = arg_text.split()
     
     if not parts:
-        await sell_stock_cmd.finish("无法解析卖出指令，请检查格式。(例：卖出 萝莉股 10)", at_sender=True)
+        await sell_stock_cmd.finish("无法解析卖出指令，请检查格式。(例：卖出 萝莉股 10)")
     
     stock_name = parts[0]
     amount_to_sell = 9999
@@ -376,20 +376,20 @@ async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid),
             pass  # 默认为全部卖出
     
     if stock_name not in STOCKS:
-        await sell_stock_cmd.finish(f"未知股票: {stock_name}", at_sender=True)
+        await sell_stock_cmd.finish(f"未知股票: {stock_name}")
     
     user_portfolio = await get_user_portfolio(uid)
     current_holding = user_portfolio.get(stock_name, 0)
     
     if current_holding == 0:
-        await sell_stock_cmd.finish(f"您没有持有{stock_name}", at_sender=True)
+        await sell_stock_cmd.finish(f"您没有持有{stock_name}")
     
     if current_holding < amount_to_sell:
         amount_to_sell = current_holding
     
     current_price = await get_current_stock_price(stock_name)
     if current_price is None:
-        await sell_stock_cmd.finish(f"{stock_name} 当前无法交易", at_sender=True)
+        await sell_stock_cmd.finish(f"{stock_name} 当前无法交易")
     
     # 计算收入
     base_earnings = current_price * amount_to_sell
@@ -404,9 +404,9 @@ async def handle_sell_stock(event: Event, bot: Bot, uid: int = Depends(get_uid),
             f"股票: {stock_name}\n"
             f"数量: {amount_to_sell}股\n"
             f"单价: {current_price:.2f}金币\n"
-            f"收入: {total_earnings}金币（扣除{fee}手续费）", at_sender=True)
+            f"收入: {total_earnings}金币（扣除{fee}手续费）")
     else:
-        await sell_stock_cmd.finish("卖出失败，更新持仓时发生错误。", at_sender=True)
+        await sell_stock_cmd.finish("卖出失败，更新持仓时发生错误。")
 
 
 # ===== 我的股仓 =====
@@ -417,7 +417,7 @@ async def handle_my_portfolio(event: Event, bot: Bot, uid: int = Depends(get_uid
     user_portfolio = await get_user_portfolio(uid)
     
     if not user_portfolio:
-        await my_portfolio_cmd.finish("您的股仓是空的，快去买点股票吧！", at_sender=True)
+        await my_portfolio_cmd.finish("您的股仓是空的，快去买点股票吧！")
     
     stock_data = await get_stock_data()
     
@@ -435,7 +435,7 @@ async def handle_my_portfolio(event: Event, bot: Bot, uid: int = Depends(get_uid
     
     lines.append(f"\n📊 股仓总价值: {total_value:.2f}金币")
     
-    await my_portfolio_cmd.finish("\n".join(lines), at_sender=True)
+    await my_portfolio_cmd.finish("\n".join(lines))
 
 
 # ===== 市场动态 =====
@@ -707,26 +707,26 @@ async def gold_change_record(uid: int, start_gold: int, final_gold: int) -> str:
 gamble_start_old_cmd = on_command("一场豪赌", priority=5, block=True)
 @gamble_start_old_cmd.handle()
 async def handle_start_gamble_old(event: Event, bot: Bot, uid: int = Depends(get_uid)):
-    await gamble_start_old_cmd.finish("由于不可抗力，本功能已更名为 幸运游戏", at_sender=True)
+    await gamble_start_old_cmd.finish("由于不可抗力，本功能已更名为 幸运游戏")
 
 gamble_start_cmd = on_command("幸运游戏", priority=5, block=True)
 @gamble_start_cmd.handle()
 async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     # 检查是否已在游戏中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await gamble_start_cmd.finish("你正在进行幸运游戏，请先完成或使用 '见好就收' 结束当前游戏。", at_sender=True)
+        await gamble_start_cmd.finish("你正在进行幸运游戏，请先完成或使用 '见好就收' 结束当前游戏。")
     
     # 检查每日限制
     
     if not await check_daily_gamble_limit(uid) and not is_su(uid):
-        await gamble_start_cmd.finish("你今天已经赌过了，明天再来吧！人生的大起大落可经不起天天折腾哦。", at_sender=True)
+        await gamble_start_cmd.finish("你今天已经赌过了，明天再来吧！人生的大起大落可经不起天天折腾哦。")
     
     # 获取当前金币
     gold = money.gold
     luckygold = money.luckygold
     
     if gold <= 0:
-        await gamble_start_cmd.finish("欠债/失信用户，禁止游戏。", at_sender=True)
+        await gamble_start_cmd.finish("欠债/失信用户，禁止游戏。")
     
     # 初始化会话状态
     gambling_sessions[uid] = {
@@ -741,7 +741,7 @@ async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid
     get_gamble_win_probability(gold, uid)
     win = gambling_sessions[uid]['win'] * 100
     
-    rules = f"""\n🎲 幸运游戏 规则 🎲：
+    rules = f"""🎲 幸运游戏 规则 🎲：
 1. 连续{MAX_GAMBLE_ROUNDS}轮幸运游戏，每一轮消耗1枚幸运币，你所持有的【全部金币】都有几率翻倍，或者骤减。
 2. 你可以在任何一轮结束后选择 '见好就收' 带着当前金币离场。
 3. 若任意一轮失败，则立即结束并离场。
@@ -751,7 +751,7 @@ async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid
 当前获胜概率: {win}%
 发送 确认 继续。
 发送 算了 取消。"""
-    await gamble_start_cmd.finish(rules, at_sender=True)
+    await gamble_start_cmd.finish(rules)
 
 
 # ===== 确认开始幸运游戏 =====
@@ -768,12 +768,12 @@ async def handle_confirm_gamble(event: Event, bot: Bot, uid: int = Depends(get_u
     start_gold = gambling_sessions[uid]['start_gold']
     
     if gold != start_gold:
-        await gamble_confirm_cmd.finish(f"检测到钱包金币发生了改变: \n{start_gold}金币 → {gold}金币\n本次会话作废，请重新开局。", at_sender=True)
+        await gamble_confirm_cmd.finish(f"检测到钱包金币发生了改变: \n{start_gold}金币 → {gold}金币\n本次会话作废，请重新开局。")
         del gambling_sessions[uid]
     
     if luckygold < 1:
         del gambling_sessions[uid]
-        await gamble_confirm_cmd.finish("你没有足够的幸运币参与幸运游戏。", at_sender=True)
+        await gamble_confirm_cmd.finish("你没有足够的幸运币参与幸运游戏。")
     
     money.luckygold -= 1
     
@@ -788,26 +788,26 @@ async def handle_confirm_gamble(event: Event, bot: Bot, uid: int = Depends(get_u
     
     if not result["success"]:
         del gambling_sessions[uid]
-        await gamble_confirm_cmd.finish(f"幸运游戏失败：{result['message']}", at_sender=True)
+        await gamble_confirm_cmd.finish(f"幸运游戏失败：{result['message']}")
     
     win = gambling_sessions[uid]['win'] * 100
     
     if result['outcome'] == "胜利":
-        message = f"""\n第1轮结果:【{result['outcome']}】
+        message = f"""第1轮结果:【{result['outcome']}】
 金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
         message += f"\n发送 '继续' 进行第 {gambling_sessions[uid]['round'] + 1} 轮，或发送 '见好就收' 离场。"
         message += f"\n当前获胜概率: {win}%"
-        await gamble_confirm_cmd.finish(message, at_sender=True)
+        await gamble_confirm_cmd.finish(message)
     else:
         start_gold = gambling_sessions[uid]['start_gold']
         final_gold = gambling_sessions[uid]['gold']
         record = await gold_change_record(uid, start_gold, final_gold)
         del gambling_sessions[uid]
-        message = f"""\n第1轮结果:【{result['outcome']}】
+        message = f"""第1轮结果:【{result['outcome']}】
 金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
         message += "\n\n本局失败，已强制离场。"
         message += record
-        await gamble_confirm_cmd.finish(message, at_sender=True)
+        await gamble_confirm_cmd.finish(message)
 
 
 # ===== 继续豪赌 =====
@@ -823,7 +823,7 @@ async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_
     luckygold = money.luckygold
     
     if luckygold < 1:
-        await gamble_continue_cmd.finish("你没有足够的幸运币继续。发送 见好就收 可以退出游戏~", at_sender=True)
+        await gamble_continue_cmd.finish("你没有足够的幸运币继续。发送 见好就收 可以退出游戏~")
     
     money.luckygold -= 1
     
@@ -835,11 +835,11 @@ async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_
     
     if not result["success"]:
         del gambling_sessions[uid]
-        await gamble_continue_cmd.finish(f"幸运游戏失败：{result['message']}", at_sender=True)
+        await gamble_continue_cmd.finish(f"幸运游戏失败：{result['message']}")
     
     win = gambling_sessions[uid]['win'] * 100
     
-    message = f"""\n第 {next_round} 轮结果：【{result['outcome']}】
+    message = f"""第 {next_round} 轮结果：【{result['outcome']}】
 金币变化：{result['old_gold']} -> {result['new_gold']} (x{result['multiplier']})"""
     
     if gambling_sessions[uid]['round'] >= MAX_GAMBLE_ROUNDS:
@@ -860,7 +860,7 @@ async def handle_continue_gamble(event: Event, bot: Bot, uid: int = Depends(get_
         message += "\n\n本局失败，已强制离场。"
         message += record
     
-    await gamble_continue_cmd.finish(message, at_sender=True)
+    await gamble_continue_cmd.finish(message)
 
 
 # ===== 见好就收/算了 =====
@@ -877,17 +877,17 @@ async def handle_stop_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid)
     if not confirmed:
         # 在规则确认阶段取消
         del gambling_sessions[uid]
-        await gamble_stop_cmd.finish("好吧，谨慎总是好的。游戏已取消。", at_sender=True)
+        await gamble_stop_cmd.finish("好吧，谨慎总是好的。游戏已取消。")
     elif current_round > 0:
         # 赌了几轮后收手
         start_gold = gambling_sessions[uid]['start_gold']
         final_gold = gambling_sessions[uid]['gold']
         record = await gold_change_record(uid, start_gold, final_gold)
         del gambling_sessions[uid]
-        await gamble_stop_cmd.finish(f"明智的选择！你在第 {current_round} 轮后选择离场。" + record, at_sender=True)
+        await gamble_stop_cmd.finish(f"明智的选择！你在第 {current_round} 轮后选择离场。" + record)
     else:
         del gambling_sessions[uid]
-        await gamble_stop_cmd.finish("游戏已结束。", at_sender=True)
+        await gamble_stop_cmd.finish("游戏已结束。")
 
 
 # ===== 豪赌榜 =====
@@ -964,7 +964,7 @@ async def handle_gamble_record(event: Event, bot: Bot, uid: int = Depends(get_ui
     increase_record = user_record['increase_record']
     reduce_record = user_record['reduce_record']
     
-    msg = f"\n你已累计将{reduce_record}金币『暂存』在梦灵酱的钱包里；"
+    msg = f"你已累计将{reduce_record}金币『暂存』在梦灵酱的钱包里；"
     msg += f"\n你已累计从梦灵酱的钱包里拿走了{increase_record}金币。"
     
     if increase_record < reduce_record:
@@ -974,7 +974,7 @@ async def handle_gamble_record(event: Event, bot: Bot, uid: int = Depends(get_ui
         win = increase_record - reduce_record
         msg += f'\n\n"唔...从人家钱包里拿走了{win}金币的零花钱呢...坏蛋！"'
     
-    await gamble_record_cmd.finish(msg, at_sender=True)
+    await gamble_record_cmd.finish(msg)
 
 
 # ===== 幸运大转盘 =====
@@ -1085,19 +1085,19 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     """处理幸运大转盘游戏逻辑"""
     gold = money.gold
     if gold <= 0:
-        await turntable_cmd.finish("欠债/失信用户，禁止游戏。", at_sender=True)
+        await turntable_cmd.finish("欠债/失信用户，禁止游戏。")
     
     # 检查每日次数
     
     unlimited_turntable = is_su_contributor(uid)
     can_spin = (await check_turntable_limit(uid))[0]
     if not can_spin and not unlimited_turntable:
-        await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！", at_sender=True)
+        await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！")
     
     # 检查幸运币
     lucky_coins = money.luckygold
     if lucky_coins < 1:
-        await turntable_cmd.finish("您的幸运币不足，无法启动转盘哦。", at_sender=True)
+        await turntable_cmd.finish("您的幸运币不足，无法启动转盘哦。")
     
     money.luckygold -= 1
     if not unlimited_turntable:
@@ -1116,7 +1116,7 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     else:
         result_message += f"\n您今天还剩下 {remaining_turns} 次机会。"
     
-    await turntable_cmd.finish(result_message, at_sender=True)
+    await turntable_cmd.finish(result_message)
 
 
 # ===== 领低保 =====
@@ -1127,28 +1127,28 @@ async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     """领取低保"""
     dibao_amount = getattr(config, 'dibao', 3000)
     if dibao_amount == 0:
-        await dibao_cmd.finish("低保功能维护中，请稍候再试。", at_sender=True)
+        await dibao_cmd.finish("低保功能维护中，请稍候再试。")
     
     # 检查今天是否已领
     if not await check_daily_prek(uid):
-        await dibao_cmd.finish("你今天已经领过了，明天再来吧。", at_sender=True)
+        await dibao_cmd.finish("你今天已经领过了，明天再来吧。")
     
     # 检查是否在赌博中
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
-        await dibao_cmd.finish("赌徒不能领取低保哦~", at_sender=True)
+        await dibao_cmd.finish("赌徒不能领取低保哦~")
     
     # 检查股票持仓
     user_portfolio = await get_user_portfolio(uid)
     if user_portfolio:
         stock_names = ", ".join(user_portfolio.keys())
-        await dibao_cmd.finish(f"检测到你偷偷藏了股票({stock_names})，这么富还想骗低保？", at_sender=True)
+        await dibao_cmd.finish(f"检测到你偷偷藏了股票({stock_names})，这么富还想骗低保？")
     
     # 检查金币
     user_gold = money.gold
     if user_gold > 4999:
-        await dibao_cmd.finish("这么富，还想骗低保？", at_sender=True)
+        await dibao_cmd.finish("这么富，还想骗低保？")
     if user_gold < 0:
-        await dibao_cmd.finish("欠债/失信用户，禁止操作。", at_sender=True)
+        await dibao_cmd.finish("欠债/失信用户，禁止操作。")
     
     # 记录领取
     await record_daily_prek(uid)
@@ -1157,10 +1157,10 @@ async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     pet = await get_user_pet(uid)
     if pet and not pet["runaway"]:
         money.gold += dibao_amount + 3000
-        await dibao_cmd.finish(f"已领取{dibao_amount+3000}金币（含宠物补贴）。\n你现在有{user_gold + dibao_amount+3000}金币", at_sender=True)
+        await dibao_cmd.finish(f"已领取{dibao_amount+3000}金币（含宠物补贴）。\n你现在有{user_gold + dibao_amount+3000}金币")
     else:
         money.gold += dibao_amount
-        await dibao_cmd.finish(f"已领取{dibao_amount}金币。\n你现在有{user_gold + dibao_amount}金币", at_sender=True)
+        await dibao_cmd.finish(f"已领取{dibao_amount}金币。\n你现在有{user_gold + dibao_amount}金币")
 
 
 # ===== 转账功能 (uid/qq/at 三种模式) =====
@@ -1201,17 +1201,17 @@ async def handle_transfer_uid(event: Event, bot: Bot, uid: int = Depends(get_uid
     """通过UID转账"""
     parts = args.extract_plain_text().strip().split()
     if len(parts) < 2:
-        await transfer_uid_cmd.finish("格式：转账uid [目标uid] [金额]", at_sender=True)
+        await transfer_uid_cmd.finish("格式：转账uid [目标uid] [金额]")
     
     try:
         target_uid = int(parts[0])
         amount = int(parts[1])
     except ValueError:
-        await transfer_uid_cmd.finish("UID和金额必须是整数！", at_sender=True)
+        await transfer_uid_cmd.finish("UID和金额必须是整数！")
     
     # 检查UID是否存在
     if not uid_manager.is_uid_exists(target_uid):
-        await transfer_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户", at_sender=True)
+        await transfer_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户")
     
     await _do_transfer(transfer_uid_cmd, uid, target_uid, amount)
 
@@ -1224,18 +1224,18 @@ async def handle_transfer_qq(event: Event, bot: Bot, uid: int = Depends(get_uid)
     """通过QQ号转账"""
     parts = args.extract_plain_text().strip().split()
     if len(parts) < 2:
-        await transfer_qq_cmd.finish("格式：转账qq [目标QQ号] [金额]", at_sender=True)
+        await transfer_qq_cmd.finish("格式：转账qq [目标QQ号] [金额]")
     
     target_qq = parts[0]
     try:
         amount = int(parts[1])
     except ValueError:
-        await transfer_qq_cmd.finish(AMOUNT_NUMBER_ERROR, at_sender=True)
+        await transfer_qq_cmd.finish(AMOUNT_NUMBER_ERROR)
     
     # QQ号转UID（不自动创建）
     target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
     if target_uid is None:
-        await transfer_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+        await transfer_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户")
     
     await _do_transfer(transfer_qq_cmd, uid, target_uid, amount)
 
@@ -1251,7 +1251,7 @@ async def handle_transfer_at(uid: int = Depends(get_uid), args: Message = Comman
         try:
             amount = _at_transfer_amount(args)
         except (ValueError, IndexError):
-            await transfer_at_cmd.finish(AMOUNT_NUMBER_ERROR, at_sender=True)
+            await transfer_at_cmd.finish(AMOUNT_NUMBER_ERROR)
         
         await _do_transfer(transfer_at_cmd, uid, target_uid, amount)
         return
@@ -1260,10 +1260,10 @@ async def handle_transfer_at(uid: int = Depends(get_uid), args: Message = Comman
     try:
         transfer_parts = _qq_transfer_parts(args)
     except ValueError:
-        await transfer_at_cmd.finish(AMOUNT_NUMBER_ERROR, at_sender=True)
+        await transfer_at_cmd.finish(AMOUNT_NUMBER_ERROR)
         return
     if transfer_parts is None:
-        await transfer_at_cmd.finish("格式：转账 [at/QQ] [金额]", at_sender=True)
+        await transfer_at_cmd.finish("格式：转账 [at/QQ] [金额]")
         return
 
     target_qq, amount = transfer_parts
@@ -1271,7 +1271,6 @@ async def handle_transfer_at(uid: int = Depends(get_uid), args: Message = Comman
     if target_uid is None:
         await transfer_at_cmd.finish(
             f"找不到at对应的账户，且找不到QQ号 {target_qq} 对应的账户",
-            at_sender=True,
         )
     await _do_transfer(transfer_at_cmd, uid, target_uid, amount)
 
@@ -1279,24 +1278,24 @@ async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
     """执行转账逻辑"""
     blackusers = getattr(config, 'blackusers', [])
     if sender_uid in blackusers:
-        await cmd.finish('\n操作失败，账户被冻结，请联系管理员寻求帮助。', at_sender=True)
+        await cmd.finish('\n操作失败，账户被冻结，请联系管理员寻求帮助。')
     
     # SU 转账金额限制
     allowed, reason = check_su_permission(sender_uid, 'transfer', amount=amount)
     if not allowed:
-        await cmd.finish(f'\n{reason}', at_sender=True)
+        await cmd.finish(f'\n{reason}')
     
     if sender_uid == target_uid:
-        await cmd.finish('\n无法给自己转账', at_sender=True)
+        await cmd.finish('\n无法给自己转账')
     
     if sender_uid in gambling_sessions and gambling_sessions[sender_uid].get('active', False):
-        await cmd.finish("你正处于幸运游戏过程中，不能转账哦~", at_sender=True)
+        await cmd.finish("你正处于幸运游戏过程中，不能转账哦~")
     
     if target_uid in gambling_sessions and gambling_sessions[target_uid].get('active', False):
-        await cmd.finish("对方正处于幸运游戏过程中，不能转账哦~", at_sender=True)
+        await cmd.finish("对方正处于幸运游戏过程中，不能转账哦~")
     
     if amount < 20:
-        await cmd.finish('错误金额，最低转账20金币', at_sender=True)
+        await cmd.finish('错误金额，最低转账20金币')
     
     # 计算手续费
     fee = int(amount * TRANSFER_FEE_RATE)
@@ -1307,18 +1306,18 @@ async def _do_transfer(cmd, sender_uid: int, target_uid: int, amount: int):
     target_wallet = money.of(target_uid)
     gold = sender_wallet.gold
     if gold < total_amount:
-        await cmd.finish(f'\n余额不足，本次转账需要 {total_amount} 金币，包含 {fee} 金币手续费。\n你当前只有 {gold} 金币', at_sender=True)
+        await cmd.finish(f'\n余额不足，本次转账需要 {total_amount} 金币，包含 {fee} 金币手续费。\n你当前只有 {gold} 金币')
     
     restgold = gold - total_amount
     if restgold < MIN_REST:
-        await cmd.finish(f'\n禁止转账，如果转账，则你将仅剩{restgold}金币。\n请确保转账后剩余金币大于{MIN_REST}。', at_sender=True)
+        await cmd.finish(f'\n禁止转账，如果转账，则你将仅剩{restgold}金币。\n请确保转账后剩余金币大于{MIN_REST}。')
     
     # 执行转账
     sender_wallet.gold -= total_amount
     target_wallet.gold += amount
     
     record_su_usage(sender_uid, 'transfer', amount)
-    await cmd.finish(f'\n转账成功，已向 UID:{target_uid} 转账 {amount} 金币，手续费 {fee} 金币\n你当前还剩 {restgold} 金币', at_sender=True)
+    await cmd.finish(f'\n转账成功，已向 UID:{target_uid} 转账 {amount} 金币，手续费 {fee} 金币\n你当前还剩 {restgold} 金币')
 
 
 # ===== 管理员打款功能 (uid/qq 两种模式) =====
@@ -1331,28 +1330,28 @@ async def handle_admin_add_uid(event: Event, bot: Bot, uid: int = Depends(get_ui
     """管理员通过UID打款"""
     
     if not is_su(uid):
-        await admin_add_uid_cmd.finish('权限不足', at_sender=True)
+        await admin_add_uid_cmd.finish('权限不足')
     
     parts = args.extract_plain_text().strip().split()
     if len(parts) < 2:
-        await admin_add_uid_cmd.finish("格式：打款uid [目标uid] [金额]", at_sender=True)
+        await admin_add_uid_cmd.finish("格式：打款uid [目标uid] [金额]")
     
     try:
         target_uid = int(parts[0])
         amount = int(parts[1])
     except ValueError:
-        await admin_add_uid_cmd.finish("UID和金额必须是数字！", at_sender=True)
+        await admin_add_uid_cmd.finish("UID和金额必须是数字！")
     
     if not uid_manager.is_uid_exists(target_uid):
-        await admin_add_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户", at_sender=True)
+        await admin_add_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户")
     
     # SU 打款权限检查
     allowed, reason = check_su_permission(uid, 'payment', target_uid=target_uid, amount=amount)
     if not allowed:
-        await admin_add_uid_cmd.finish(f'\n{reason}', at_sender=True)
+        await admin_add_uid_cmd.finish(f'\n{reason}')
     
     money.of(target_uid).gold += amount
-    await admin_add_uid_cmd.finish(f'已向 UID:{target_uid} 打款 {amount} 金币', at_sender=True)
+    await admin_add_uid_cmd.finish(f'已向 UID:{target_uid} 打款 {amount} 金币')
 
 
 # 打款qq [目标QQ号] [金额]
@@ -1363,30 +1362,30 @@ async def handle_admin_add_qq(event: Event, bot: Bot, uid: int = Depends(get_uid
     """管理员通过QQ号打款"""
     
     if not is_su(uid):
-        await admin_add_qq_cmd.finish('权限不足', at_sender=True)
+        await admin_add_qq_cmd.finish('权限不足')
     
     parts = args.extract_plain_text().strip().split()
     if len(parts) < 2:
-        await admin_add_qq_cmd.finish("格式：打款qq [目标QQ号] [金额]", at_sender=True)
+        await admin_add_qq_cmd.finish("格式：打款qq [目标QQ号] [金额]")
     
     target_qq = parts[0]
     try:
         amount = int(parts[1])
     except ValueError:
-        await admin_add_qq_cmd.finish(AMOUNT_NUMBER_ERROR, at_sender=True)
+        await admin_add_qq_cmd.finish(AMOUNT_NUMBER_ERROR)
     
     # QQ号转UID
     target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
     if target_uid is None:
-        await admin_add_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+        await admin_add_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户")
     
     # SU 打款权限检查
     allowed, reason = check_su_permission(uid, 'payment', target_uid=target_uid, amount=amount)
     if not allowed:
-        await admin_add_qq_cmd.finish(f'\n{reason}', at_sender=True)
+        await admin_add_qq_cmd.finish(f'\n{reason}')
     
     money.of(target_uid).gold += amount
-    await admin_add_qq_cmd.finish(f'已向 QQ:{target_qq} (UID:{target_uid}) 打款 {amount} 金币', at_sender=True)
+    await admin_add_qq_cmd.finish(f'已向 QQ:{target_qq} (UID:{target_uid}) 打款 {amount} 金币')
 
 
 # ===== 管理员扣款功能 (uid/qq 两种模式) =====
@@ -1399,33 +1398,33 @@ async def handle_admin_reduce_uid(event: Event, bot: Bot, uid: int = Depends(get
     """管理员通过UID扣款"""
     
     if not is_su(uid):
-        await admin_reduce_uid_cmd.finish('权限不足', at_sender=True)
+        await admin_reduce_uid_cmd.finish('权限不足')
     
     parts = args.extract_plain_text().strip().split()
     if len(parts) < 2:
-        await admin_reduce_uid_cmd.finish("格式：扣款uid [目标uid] [金额]", at_sender=True)
+        await admin_reduce_uid_cmd.finish("格式：扣款uid [目标uid] [金额]")
     
     try:
         target_uid = int(parts[0])
         amount = int(parts[1])
     except ValueError:
-        await admin_reduce_uid_cmd.finish("UID和金额必须是数字！", at_sender=True)
+        await admin_reduce_uid_cmd.finish("UID和金额必须是数字！")
 
     if amount <= 0:
-        await admin_reduce_uid_cmd.finish("金额必须是正整数！", at_sender=True)
+        await admin_reduce_uid_cmd.finish("金额必须是正整数！")
     
     if not uid_manager.is_uid_exists(target_uid):
-        await admin_reduce_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户", at_sender=True)
+        await admin_reduce_uid_cmd.finish(f"找不到 UID:{target_uid} 对应的账户")
 
     if not is_su_contributor(uid) and target_uid != uid:
-        await admin_reduce_uid_cmd.finish('权限不足', at_sender=True)
+        await admin_reduce_uid_cmd.finish('权限不足')
     
     target_wallet = money.of(target_uid)
     target_gold = target_wallet.gold
     
     deduct_amount = min(amount, max(target_gold, 0))
     target_wallet.gold -= deduct_amount
-    await admin_reduce_uid_cmd.finish(f'已从 UID:{target_uid} 扣款 {deduct_amount} 金币', at_sender=True)
+    await admin_reduce_uid_cmd.finish(f'已从 UID:{target_uid} 扣款 {deduct_amount} 金币')
 
 
 # 扣款qq [目标QQ号] [金额]
@@ -1436,32 +1435,32 @@ async def handle_admin_reduce_qq(event: Event, bot: Bot, uid: int = Depends(get_
     """管理员通过QQ号扣款"""
     
     if not is_su(uid):
-        await admin_reduce_qq_cmd.finish('权限不足', at_sender=True)
+        await admin_reduce_qq_cmd.finish('权限不足')
     
     parts = args.extract_plain_text().strip().split()
     if len(parts) < 2:
-        await admin_reduce_qq_cmd.finish("格式：扣款qq [目标QQ号] [金额]", at_sender=True)
+        await admin_reduce_qq_cmd.finish("格式：扣款qq [目标QQ号] [金额]")
     
     target_qq = parts[0]
     try:
         amount = int(parts[1])
     except ValueError:
-        await admin_reduce_qq_cmd.finish(AMOUNT_NUMBER_ERROR, at_sender=True)
+        await admin_reduce_qq_cmd.finish(AMOUNT_NUMBER_ERROR)
 
     if amount <= 0:
-        await admin_reduce_qq_cmd.finish("金额必须是正整数！", at_sender=True)
+        await admin_reduce_qq_cmd.finish("金额必须是正整数！")
     
     # QQ号转UID
     target_uid = uid_manager.get_uid_by_external_id("onebot", target_qq)
     if target_uid is None:
-        await admin_reduce_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户", at_sender=True)
+        await admin_reduce_qq_cmd.finish(f"找不到QQ号 {target_qq} 对应的账户")
 
     if not is_su_contributor(uid) and target_uid != uid:
-        await admin_reduce_qq_cmd.finish('权限不足', at_sender=True)
+        await admin_reduce_qq_cmd.finish('权限不足')
     
     target_wallet = money.of(target_uid)
     target_gold = target_wallet.gold
     
     deduct_amount = min(amount, max(target_gold, 0))
     target_wallet.gold -= deduct_amount
-    await admin_reduce_qq_cmd.finish(f'已从 QQ:{target_qq} (UID:{target_uid}) 扣款 {deduct_amount} 金币', at_sender=True)
+    await admin_reduce_qq_cmd.finish(f'已从 QQ:{target_qq} (UID:{target_uid}) 扣款 {deduct_amount} 金币')

@@ -681,13 +681,11 @@ async def handle_adopt_start(
         await adopt_cmd.finish(
             "你还没有绑定QQ号，无法领养云冰祈~\n"
             "请先在onebot端使用bot，或在设置中绑定QQ号",
-            at_sender=True
         )
 
     if owner_qq in _cache_owner_to_bot:
         await adopt_cmd.finish(
             "你已经领养过一个云冰祈了~\n如果想重新领养，请先 注销云冰祈",
-            at_sender=True
         )
 
     conn = sqlite3.connect(_get_db_path())
@@ -699,7 +697,6 @@ async def handle_adopt_start(
         if row:
             await adopt_cmd.finish(
                 f"你已有一个待审核的领养申请（ID: {row[0]}），请耐心等待审核~",
-                at_sender=True
             )
     finally:
         conn.close()
@@ -716,7 +713,6 @@ async def handle_adopt_start(
 
     await adopt_cmd.send(
         "要领养云冰祈咯~\n\n请输入要注册的bot的QQ号（回复 退出 结束领养）：",
-        at_sender=True
     )
     await adopt_cmd.pause()
 
@@ -735,14 +731,14 @@ async def handle_step_bot_qq(
         return
     if user_input == '退出':
         _apply_context.pop(user_id, None)
-        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE, at_sender=True)
+        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE)
 
     if not user_input.isdigit():
-        await adopt_cmd.reject("需要输入QQ号码~", at_sender=True)
+        await adopt_cmd.reject("需要输入QQ号码~")
     if user_input == ctx['owner_qq']:
-        await adopt_cmd.reject("请使用bot账号的QQ~而且不能是自己的QQ", at_sender=True)
+        await adopt_cmd.reject("请使用bot账号的QQ~而且不能是自己的QQ")
     if user_input in _cache_bot_set:
-        await adopt_cmd.finish("该bot已被认领~", at_sender=True)
+        await adopt_cmd.finish("该bot已被认领~")
 
     conn = sqlite3.connect(_get_db_path())
     try:
@@ -751,14 +747,13 @@ async def handle_step_bot_qq(
             (user_input, 'pending')
         ).fetchone()
         if row:
-            await adopt_cmd.finish("该bot已有待审核的领养申请~", at_sender=True)
+            await adopt_cmd.finish("该bot已有待审核的领养申请~")
     finally:
         conn.close()
 
     ctx['bot_qq'] = user_input
     await adopt_cmd.send(
         f"bot QQ: {user_input}\n\n请输入领养理由（如：想让bot活跃群气氛、在别的群使用冰祈、仅自用等）：",
-        at_sender=True
     )
     await adopt_cmd.pause()
 
@@ -777,7 +772,7 @@ async def handle_step_reason(
         return
     if user_input == '退出':
         _apply_context.pop(user_id, None)
-        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE, at_sender=True)
+        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE)
 
     ctx['reason'] = user_input
     await adopt_cmd.send(
@@ -786,7 +781,6 @@ async def handle_step_reason(
         "- 不用于骚扰、广告等行为\n"
         "- 遵守QQ平台用户协议\n\n"
         "请回复 我承诺合规使用 确认：",
-        at_sender=True
     )
     await adopt_cmd.pause()
 
@@ -805,12 +799,11 @@ async def handle_step_compliance(
         return
     if user_input == '退出':
         _apply_context.pop(user_id, None)
-        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE, at_sender=True)
+        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE)
 
     if user_input != '我承诺合规使用':
         await adopt_cmd.reject(
             "请回复 我承诺合规使用 来确认承诺，或回复 退出 取消申请",
-            at_sender=True
         )
 
     ctx['compliance_commit'] = user_input
@@ -818,7 +811,6 @@ async def handle_step_compliance(
         "云冰祈需要你自行搭建使用onebotv11协议的bot客户端并新建ws反向连接。\n"
         "请确认你了解这一技术要求：\n\n"
         "请回复 我已经搭建bot客户端 确认：",
-        at_sender=True
     )
     await adopt_cmd.pause()
 
@@ -837,12 +829,11 @@ async def handle_step_tech_confirm(
         return
     if user_input == '退出':
         _apply_context.pop(user_id, None)
-        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE, at_sender=True)
+        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE)
 
     if user_input != '我已经搭建bot客户端':
         await adopt_cmd.reject(
             "请回复 我已经搭建bot客户端 来确认，或回复 退出 取消申请",
-            at_sender=True
         )
 
     ctx['tech_commit'] = user_input
@@ -858,7 +849,7 @@ async def handle_step_tech_confirm(
         f"==================\n"
         "回复 确认提交 提交审核，或回复 退出 取消"
     )
-    await adopt_cmd.send(summary, at_sender=True)
+    await adopt_cmd.send(summary)
     await adopt_cmd.pause()
 
 
@@ -876,12 +867,11 @@ async def handle_step_confirm(
         return
     if user_input == '退出':
         _apply_context.pop(user_id, None)
-        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE, at_sender=True)
+        await adopt_cmd.finish(ADOPTION_ENDED_MESSAGE)
 
     if user_input != '确认提交':
         await adopt_cmd.reject(
             "请回复 确认提交 来提交申请，或回复 退出 取消",
-            at_sender=True
         )
 
     now_iso = datetime.now().isoformat()
@@ -911,7 +901,6 @@ async def handle_step_confirm(
         f"网页查询审核状态和WS地址：\n{web_url}\n"
         "在网页输入主人QQ和bot QQ即可查询。\n\n"
         "也可以在QQ内发送「查询领养状态」查看审核进度。",
-        at_sender=True
     )
 
 
@@ -1092,14 +1081,13 @@ async def handle_query_status(
     owner_qq = external_ids.get('onebot_id')
     url = get_whitelist_web_url()
     if not owner_qq:
-        await query_cmd.finish("你还没有绑定QQ号~", at_sender=True)
+        await query_cmd.finish("你还没有绑定QQ号~")
 
     # 先查白名单
     if owner_qq in _cache_owner_to_bot:
         bot_qq = _cache_owner_to_bot[owner_qq]
         await query_cmd.finish(
             f"你已成功领养云冰祈~\n主人QQ: {owner_qq}\nbot QQ: {bot_qq}\n配置方法请查看：{url}",
-            at_sender=True
         )
 
     # 查审核列表
@@ -1116,7 +1104,7 @@ async def handle_query_status(
         conn.close()
 
     if not rows:
-        await query_cmd.finish("你还没有领养过云冰祈~\n发送 领养云冰祈 开始领养", at_sender=True)
+        await query_cmd.finish("你还没有领养过云冰祈~\n发送 领养云冰祈 开始领养")
 
     status_map = {'pending': '待审核', 'approved': '已通过', 'rejected': '已拒绝'}
     lines = ["=== 领养状态查询 ==="]
@@ -1135,7 +1123,7 @@ async def handle_query_status(
             line += f"\n通过时间: {row[5]}"
         lines.append(line)
 
-    await query_cmd.finish("\n\n".join(lines), at_sender=True)
+    await query_cmd.finish("\n\n".join(lines))
 
 
 # ================== SU手动添加白名单 ==================
@@ -1191,17 +1179,16 @@ async def handle_logout_whitelist(
     external_ids = get_external_ids(uid)
     owner_qq = external_ids.get('onebot_id')
     if not owner_qq:
-        await logout_wl.finish("你还没有绑定QQ号~", at_sender=True)
+        await logout_wl.finish("你还没有绑定QQ号~")
 
     bot_qq = remove_from_whitelist(owner_qq)
     if bot_qq:
         deleted_count = delete_review_records_for_bot(bot_qq)
         await logout_wl.finish(
             f"bot({bot_qq})注销云冰祈了...\n已删除相关审核记录 {deleted_count} 条",
-            at_sender=True
         )
     else:
-        await logout_wl.finish("你还没有领养云冰祈...", at_sender=True)
+        await logout_wl.finish("你还没有领养云冰祈...")
 
 
 # ================== 启动初始化 ==================

@@ -513,14 +513,14 @@ async def check_quota_and_balance(uid: int, cmd, allow_free_draw: bool = True) -
     if not is_su_contributor(uid):
         ok = await check_daily_limit(uid)
         if not ok:
-            await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~", at_sender=True)
+            await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
             return False
 
     if allow_free_draw and await get_free_draw_count(uid) > 0:
         return True
 
     if not koinori_config.enable_gold_aidraw:
-        await cmd.finish("当前仅允许使用免费画图次数，请先获取免费次数后再来画图~", at_sender=True)
+        await cmd.finish("当前仅允许使用免费画图次数，请先获取免费次数后再来画图~")
         return False
 
     wallet = money.of(uid)
@@ -528,7 +528,6 @@ async def check_quota_and_balance(uid: int, cmd, allow_free_draw: bool = True) -
     if user_gold < koinori_config.draw_cost:
         await cmd.finish(
             f"金币不足！画一张图需要 {koinori_config.draw_cost} 金币，你当前只有 {user_gold} 金币。",
-            at_sender=True,
         )
         return False
 
@@ -595,27 +594,27 @@ def _build_text_image_message(text: str, image_msg) -> Message:
 async def ensure_draw_available(event: Event, uid: int, cmd) -> None:
     """检查文本生图功能是否可用。"""
     if not koinori_config.gpt_image_api_key:
-        await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
+        await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~")
 #    if is_qqbot(event):
-#        await cmd.finish("AI画图功能暂不支持QQbot~", at_sender=True)
+#        await cmd.finish("AI画图功能暂不支持QQbot~")
     if not koinori_config.ai_draw_enable and not is_su_contributor(uid):
-        await cmd.finish("AI画图功能维护中，暂时不可用~", at_sender=True)
+        await cmd.finish("AI画图功能维护中，暂时不可用~")
 
 
 async def ensure_edit_available(event: Event, uid: int, cmd) -> None:
     """检查图片编辑功能是否可用。"""
     if not koinori_config.gpt_image_api_key:
-        await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~", at_sender=True)
+        await cmd.finish("未配置 GPT-Image-2 API Key，请联系主人配置~")
 #    if is_qqbot(event):
-#        await cmd.finish("AI修图功能暂不支持QQbot~", at_sender=True)
+#        await cmd.finish("AI修图功能暂不支持QQbot~")
     if not koinori_config.ai_draw_enable and not is_su_contributor(uid):
-        await cmd.finish("AI修图功能维护中，暂时不可用~", at_sender=True)
+        await cmd.finish("AI修图功能维护中，暂时不可用~")
 
 
 async def ensure_high_quality_allowed(uid: int, cmd) -> None:
     """高质量画图/修图仅限 level 0 SU。"""
     if not is_su_contributor(uid):
-        await cmd.finish("高质量AI绘图/修图仅限权限等级为 0 的 SU 使用。", at_sender=True)
+        await cmd.finish("高质量AI绘图/修图仅限权限等级为 0 的 SU 使用。")
 
 
 async def do_draw(
@@ -639,15 +638,15 @@ async def do_draw(
 
     if not draw_limiter.check(uid):
         left = round(draw_limiter.left_time(uid))
-        await cmd.finish(f"画图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
+        await cmd.finish(f"画图太频繁啦，请等待 {left}s 后再试~")
     draw_limiter.start_cd(uid)
 
     if uid in _drawing_uids:
-        await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~", at_sender=True)
+        await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~")
 
     payment = pay_draw_cost(uid)
     if not payment:
-        await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
+        await cmd.finish("扣除金币失败，请稍后再试。")
 
     await cmd.send(
         format_draw_progress(
@@ -670,11 +669,11 @@ async def do_draw(
     except RuntimeError as e:
         refund_text = refund_draw_payment(uid, payment)
         logger.error(f"画图失败: {e}")
-        await cmd.finish(f"画图失败: {e}\n{refund_text}", at_sender=True)
+        await cmd.finish(f"画图失败: {e}\n{refund_text}")
     except Exception as e:
         refund_text = refund_draw_payment(uid, payment)
         logger.error(f"画图异常: {type(e).__name__}: {e}")
-        await cmd.finish(f"画图出错了: {e}\n{refund_text}", at_sender=True)
+        await cmd.finish(f"画图出错了: {e}\n{refund_text}")
     else:
         await record_draw_success(uid)
         try:
@@ -684,7 +683,7 @@ async def do_draw(
                 base_text + size_quality_info,
                 image_msg,
             )
-            await cmd.send(result_msg, at_sender=True)
+            await cmd.send(result_msg)
         except ActionFailed:
             logger.warning("发送图片超时，但图片可能已送达")
         await cmd.finish()
@@ -707,18 +706,17 @@ async def do_edit(
     try:
         ref_image = await extract_image(event)
     except RuntimeError as e:
-        await cmd.finish(f"获取参考图失败: {e}", at_sender=True)
+        await cmd.finish(f"获取参考图失败: {e}")
         return
 
     if not ref_image:
         await cmd.finish(
             "请附带一张参考图再使用修图命令哦~\n例: 发送冰祈修图[附带图片] 把背景换成赛博朋克风格",
-            at_sender=True,
         )
         return
 
     if not user_text.strip():
-        await cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的", at_sender=True)
+        await cmd.finish("请输入修图描述，例如: 冰祈修图[附带图片] 把猫变成金色的")
         return
 
     if not await check_quota_and_balance(uid, cmd, allow_free_draw=False):
@@ -726,16 +724,16 @@ async def do_edit(
 
     if not draw_limiter.check(uid):
         left = round(draw_limiter.left_time(uid))
-        await cmd.finish(f"修图太频繁啦，请等待 {left}s 后再试~", at_sender=True)
+        await cmd.finish(f"修图太频繁啦，请等待 {left}s 后再试~")
     draw_limiter.start_cd(uid)
 
     if uid in _drawing_uids:
-        await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~", at_sender=True)
+        await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~")
 
     prompt = user_text.strip()
     payment = pay_draw_cost(uid, allow_free_draw=False)
     if not payment:
-        await cmd.finish("扣除金币失败，请稍后再试。", at_sender=True)
+        await cmd.finish("扣除金币失败，请稍后再试。")
 
     edit_size = koinori_config.ai_draw_size
     user_gold_after = money.of(uid).gold
@@ -754,11 +752,11 @@ async def do_edit(
     except RuntimeError as e:
         refund_text = refund_draw_payment(uid, payment)
         logger.error(f"修图失败: {e}")
-        await cmd.finish(f"修图失败: {e}\n{refund_text}", at_sender=True)
+        await cmd.finish(f"修图失败: {e}\n{refund_text}")
     except Exception as e:
         refund_text = refund_draw_payment(uid, payment)
         logger.error(f"修图异常: {type(e).__name__}: {e}")
-        await cmd.finish(f"修图出错了: {e}\n{refund_text}", at_sender=True)
+        await cmd.finish(f"修图出错了: {e}\n{refund_text}")
     else:
         await record_draw_success(uid)
         try:
@@ -766,7 +764,7 @@ async def do_edit(
                 f"提示词：\n{prompt}\n预期尺寸：{edit_size} | 质量：{edit_quality}",
                 image_msg,
             )
-            await cmd.send(result_msg, at_sender=True)
+            await cmd.send(result_msg)
         except ActionFailed:
             logger.warning("修图发送图片超时，但图片可能已送达")
         await cmd.finish()
@@ -784,10 +782,10 @@ def _is_level0_su(uid: int) -> bool:
 @reset_all_usage_cmd.handle()
 async def handle_reset_all_usage(uid: int = Depends(get_uid)):
     if not _is_level0_su(uid):
-        await reset_all_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。", at_sender=True)
+        await reset_all_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。")
 
     affected = await reset_draw_usage()
-    await reset_all_usage_cmd.finish(f"已重置全部用户今日画图次数（更新 {affected} 条记录）。", at_sender=True)
+    await reset_all_usage_cmd.finish(f"已重置全部用户今日画图次数（更新 {affected} 条记录）。")
 
 
 @reset_usage_cmd.handle()
@@ -796,21 +794,21 @@ async def handle_reset_usage(
     uid: int = Depends(get_uid),
 ):
     if not _is_level0_su(uid):
-        await reset_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。", at_sender=True)
+        await reset_usage_cmd.finish("权限不足，仅限权限等级为 0 的 SU 使用。")
 
     arg_text = args.extract_plain_text().strip()
     if not arg_text:
-        await reset_usage_cmd.finish("格式：重置画图次数 uid", at_sender=True)
+        await reset_usage_cmd.finish("格式：重置画图次数 uid")
 
     try:
         target_uid = int(arg_text.split()[0])
     except ValueError:
-        await reset_usage_cmd.finish("UID 必须是整数。", at_sender=True)
+        await reset_usage_cmd.finish("UID 必须是整数。")
 
     affected = await reset_draw_usage(target_uid)
     if affected:
-        await reset_usage_cmd.finish(f"已重置 UID:{target_uid} 今日画图次数。", at_sender=True)
-    await reset_usage_cmd.finish(f"UID:{target_uid} 今日画图次数已经是 0。", at_sender=True)
+        await reset_usage_cmd.finish(f"已重置 UID:{target_uid} 今日画图次数。")
+    await reset_usage_cmd.finish(f"UID:{target_uid} 今日画图次数已经是 0。")
 
 
 @draw_cmd.handle()
@@ -821,7 +819,7 @@ async def handle_draw(
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
-#        await draw_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
+#        await draw_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await handle_draw_command(event, uid, args, draw_cmd)
 
 
@@ -833,7 +831,7 @@ async def handle_draw_high(
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
-#        await draw_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
+#        await draw_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await ensure_high_quality_allowed(uid, draw_high_cmd)
     await handle_draw_command(
         event,
@@ -855,7 +853,7 @@ async def handle_draw_command(
 
     user_text = args.extract_plain_text().strip()
     if not user_text:
-        await cmd.finish("请输入画图描述，例如: 冰祈画图 一只可爱的猫", at_sender=True)
+        await cmd.finish("请输入画图描述，例如: 冰祈画图 一只可爱的猫")
 
     await do_draw(event, uid, user_text, cmd=cmd, quality=quality)
 
@@ -868,7 +866,7 @@ async def handle_edit(
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
-#        await edit_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
+#        await edit_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await handle_edit_command(event, uid, args, edit_cmd)
 
 
@@ -880,7 +878,7 @@ async def handle_edit_high(
     uid: int = Depends(get_uid),
 ):
 #    if not koinori_config.deepseek_api_key:
-#        await edit_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~", at_sender=True)
+#        await edit_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await ensure_high_quality_allowed(uid, edit_high_cmd)
     await handle_edit_command(
         event,

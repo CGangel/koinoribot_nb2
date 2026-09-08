@@ -58,7 +58,6 @@ async def handle_login(
         left = round(login_limiter.left_time(uid))
         await login_cmd.finish(
             f"已经领过签到卡片啦，稍微等一下再来领喔~({left}s)",
-            at_sender=True
         )
     
     # 获取用户昵称
@@ -205,12 +204,12 @@ async def handle_upload_bg(
         pass
     
     if not image_url:
-        await upload_bg_cmd.finish("请附带图片~", at_sender=True)
+        await upload_bg_cmd.finish("请附带图片~")
     
     # 检查金币
     user_gold = money.gold
     if user_gold < UPLOAD_BG_COST:
-        await upload_bg_cmd.finish("金币不足...", at_sender=True)
+        await upload_bg_cmd.finish("金币不足...")
     
     # 下载并保存图片（使用uid作为文件名）
     await dl_save_image(image_url, uid)
@@ -222,7 +221,7 @@ async def handle_upload_bg(
     else:
         msg = "已上传图片~"
     
-    await upload_bg_cmd.finish(msg, at_sender=True)
+    await upload_bg_cmd.finish(msg)
 
 
 # ===== 清除签到图片 =====
@@ -237,7 +236,7 @@ async def handle_remove_bg(
     """处理清除签到图片命令"""
     del_custom_bg(uid)
     
-    await remove_bg_cmd.finish("已恢复默认背景~", at_sender=True)
+    await remove_bg_cmd.finish("已恢复默认背景~")
 
 
 # ===== 查看UID =====
@@ -257,12 +256,12 @@ async def handle_view_uid(
     openid_display = external_ids["qqbot_id"] if external_ids["qqbot_id"] else "未绑定"
 
     msg = (
-        f"\n您的uid：{uid}\n"
+        f"您的uid：{uid}\n"
         f"--qq：{qq_display}\n"
         f"--openid：{openid_display}"
     )
 
-    await view_uid_cmd.finish(msg, at_sender=True)
+    await view_uid_cmd.finish(msg)
 
 
 # ===== 查找UID =====
@@ -277,7 +276,7 @@ async def handle_find_uid(
     """处理查找UID命令"""
     msg = event.get_plaintext().strip().split(maxsplit=1)
     if len(msg) < 2 or not msg[1].isdigit():
-        await find_uid_cmd.finish("请输入正确的uid，格式：查找uid [目标uid]", at_sender=True)
+        await find_uid_cmd.finish("请输入正确的uid，格式：查找uid [目标uid]")
     
     target_uid = int(msg[1])
     
@@ -286,7 +285,7 @@ async def handle_find_uid(
     cost = 10000
     
     if user_gold < cost:
-        await find_uid_cmd.finish(f"金币不足...查找uid需要花费 {cost} 金币", at_sender=True)
+        await find_uid_cmd.finish(f"金币不足...查找uid需要花费 {cost} 金币")
         
     # 查询信息
     from ...uid_manager import get_external_ids
@@ -296,7 +295,7 @@ async def handle_find_uid(
     openid_display = target_ids["qqbot_id"] if target_ids["qqbot_id"] else "未绑定"
     
     if qq_display == "未绑定" and openid_display == "未绑定":
-        await find_uid_cmd.finish("目标uid不存在或未绑定任何平台。", at_sender=True)
+        await find_uid_cmd.finish("目标uid不存在或未绑定任何平台。")
         
     # 扣除金币
     money.gold -= cost
@@ -307,7 +306,7 @@ async def handle_find_uid(
         f"--openid：{openid_display}"
     )
     
-    await find_uid_cmd.finish(ret_msg, at_sender=True)
+    await find_uid_cmd.finish(ret_msg)
 
 
 # ===== 注册验证码（仅私聊） =====
@@ -334,13 +333,13 @@ async def handle_register_code(
         is_private = True
 
     if not is_private:
-        await register_code_cmd.finish("该命令仅支持私聊使用哦~", at_sender=True)
+        await register_code_cmd.finish("该命令仅支持私聊使用哦~")
 
     # 检查是否已双平台绑定
     from ...uid_manager import get_external_ids
     external_ids = get_external_ids(uid)
     if external_ids["onebot_id"] and external_ids["qqbot_id"]:
-        await register_code_cmd.finish("你已绑定了两个平台，无需再次绑定~", at_sender=True)
+        await register_code_cmd.finish("你已绑定了两个平台，无需再次绑定~")
 
     from ...uid_manager import generate_bind_code
     code = generate_bind_code(uid)
@@ -372,14 +371,13 @@ async def handle_bind(
         left = round(bind_limiter.left_time(uid))
         await bind_cmd.finish(
             f"操作太快啦，请等待 {left} 秒后再尝试绑定~",
-            at_sender=True
         )
 
     # 提取参数（验证码）
     raw_msg = event.get_plaintext().strip()
     parts = raw_msg.split()
     if len(parts) < 2:
-        await bind_cmd.finish("请输入验证码，格式：绑定账号 验证码", at_sender=True)
+        await bind_cmd.finish("请输入验证码，格式：绑定账号 验证码")
 
     code = parts[1].strip()
 
@@ -389,7 +387,7 @@ async def handle_bind(
     # 校验验证码
     source_uid = verify_bind_code(code)
     if source_uid is None:
-        await bind_cmd.finish("验证码无效或已过期，请通过 注册绑定码 获取~", at_sender=True)
+        await bind_cmd.finish("验证码无效或已过期，请通过 注册绑定码 获取~")
 
     # 判断当前用户平台
     if is_onebot(event):
@@ -397,7 +395,7 @@ async def handle_bind(
     elif is_qqbot(event):
         current_platform = "qqbot"
     else:
-        await bind_cmd.finish(UNSUPPORTED_PLATFORM_MESSAGE, at_sender=True)
+        await bind_cmd.finish(UNSUPPORTED_PLATFORM_MESSAGE)
         return
 
     current_external_id = event.get_user_id()
@@ -407,13 +405,12 @@ async def handle_bind(
 
     # 不能绑定到自己
     if source_uid == uid:
-        await bind_cmd.finish("验证码对应的就是你当前的账号，无需绑定~", at_sender=True)
+        await bind_cmd.finish("验证码对应的就是你当前的账号，无需绑定~")
 
     # 如果源uid两个槽位都满了，直接拒绝
     if source_ids["onebot_id"] and source_ids["qqbot_id"]:
         await bind_cmd.finish(
             f"验证码对应的uid={source_uid}已绑定了两个平台的账号，不支持绑定~",
-            at_sender=True
         )
 
     # 检查源uid对应的平台槽位是否已被占用（同平台不能绑定）
@@ -421,7 +418,6 @@ async def handle_bind(
     if source_ids.get(source_platform_col):
         await bind_cmd.finish(
             f"验证码对应的uid={source_uid}已绑定了{current_platform}平台的账号，不能重复绑定同一平台~",
-            at_sender=True
         )
 
     # 获取两个uid的资产信息用于展示
@@ -465,7 +461,7 @@ async def handle_bind_choice(
     from ...uid_manager import rebind_external_id, delete_uid_mapping, get_external_ids
 
     if uid not in _bind_context:
-        await bind_cmd.finish("没有待处理的绑定请求~", at_sender=True)
+        await bind_cmd.finish("没有待处理的绑定请求~")
 
     ctx = _bind_context.pop(uid)
     choice = event.get_plaintext().strip()
@@ -481,7 +477,6 @@ async def handle_bind_choice(
         delete_uid_mapping(current_uid)
         await bind_cmd.finish(
             f"绑定成功！\n保留 uid={source_uid}\nuid={current_uid} 已删除。",
-            at_sender=True
         )
     elif choice == "2":
         # 保留新账号（current_uid），将源的另一平台ID移过来，删除源uid
@@ -494,10 +489,9 @@ async def handle_bind_choice(
         delete_uid_mapping(source_uid)
         await bind_cmd.finish(
             f"绑定成功！\n保留 uid={current_uid}\nuid={source_uid} 已删除。",
-            at_sender=True
         )
     else:
-        await bind_cmd.finish("无效的选择，绑定已取消。", at_sender=True)
+        await bind_cmd.finish("无效的选择，绑定已取消。")
 
 
 # ===== 解绑账号 =====
@@ -516,12 +510,12 @@ async def handle_unbind(
     external_ids = get_external_ids(uid)
 
     if not is_onebot(event) and not is_qqbot(event):
-        await unbind_cmd.finish(UNSUPPORTED_PLATFORM_MESSAGE, at_sender=True)
+        await unbind_cmd.finish(UNSUPPORTED_PLATFORM_MESSAGE)
         return
 
     # 检查是否已绑定了两个平台
     if not external_ids["onebot_id"] or not external_ids["qqbot_id"]:
-        await unbind_cmd.finish("你当前只绑定了一个平台，无需解绑~", at_sender=True)
+        await unbind_cmd.finish("你当前只绑定了一个平台，无需解绑~")
 
     await unbind_cmd.send(
         f"解绑后，你在当前平台将获得一个全新的uid，原uid={uid}的数据保留在原账号中。\n"
@@ -541,7 +535,7 @@ async def handle_unbind_confirm(
 
     confirm = event.get_plaintext().strip()
     if confirm != "确认":
-        await unbind_cmd.finish("已取消解绑操作。", at_sender=True)
+        await unbind_cmd.finish("已取消解绑操作。")
 
     if is_onebot(event):
         platform = "onebot"
@@ -550,7 +544,7 @@ async def handle_unbind_confirm(
         platform = "qqbot"
         platform_col = "qqbot_id"
     else:
-        await unbind_cmd.finish(UNSUPPORTED_PLATFORM_MESSAGE, at_sender=True)
+        await unbind_cmd.finish(UNSUPPORTED_PLATFORM_MESSAGE)
         return
 
     # 将当前平台ID从uid中移除
@@ -566,7 +560,6 @@ async def handle_unbind_confirm(
 
     await unbind_cmd.finish(
         f"解绑成功！你在当前平台的新uid为 {new_uid}，原uid={uid}的数据保留在原账号中。",
-        at_sender=True
     )
 
 
@@ -635,7 +628,7 @@ async def handle_upload_avatar(
     """处理上传头像命令"""
     image_url = _extract_avatar_image_url(event)
     if not image_url:
-        await upload_avatar_cmd.finish("请加上图片一起发送哦~", at_sender=True)
+        await upload_avatar_cmd.finish("请加上图片一起发送哦~")
         return
 
     try:
@@ -643,7 +636,7 @@ async def handle_upload_avatar(
         _save_avatar_image(_crop_avatar_image(image), uid)
     except (aiohttp.ClientError, OSError, ValueError) as e:
         logger.error(f"上传头像失败: {e}")
-        await upload_avatar_cmd.finish("头像上传失败或图片格式不正确...", at_sender=True)
+        await upload_avatar_cmd.finish("头像上传失败或图片格式不正确...")
         return
 
-    await upload_avatar_cmd.finish("头像上传成功并已自动裁剪~", at_sender=True)
+    await upload_avatar_cmd.finish("头像上传成功并已自动裁剪~")
