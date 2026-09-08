@@ -39,6 +39,7 @@ class KoinoribotConfig(BaseModel):
     join_request_keywords: list = ["abc", "def"]  # 入群验证内容含任一关键词则自动放行
     join_request_bots: list = []                  # 允许自动审批的 bot QQ 号列表（空列表不审批）
     join_request_bot_qq: dict = {}                # 官Bot appid→QQ号 绑定（官Bot self_id 是 appid）
+    qqbot_reply_quote: bool = False               # 官Bot 被动回复自动引用用户消息（引用形式展示）
 
     # ================== 官Bot AppID ==================
     qqbot_appid: str = ""                                              # 官方Bot AppID，用于通过 openid 获取用户昵称和头像
@@ -112,7 +113,7 @@ class KoinoribotConfig(BaseModel):
 _FIELD_SECTIONS: dict[str, list[str]] = {
     "群管理": [
         "join_request_auto_approve", "join_request_keywords", "join_request_bots",
-        "join_request_bot_qq",
+        "join_request_bot_qq", "qqbot_reply_quote",
     ],
     "官Bot AppID": ["qqbot_appid", "qqbot_openid_api"],
     "钓鱼配置": [
@@ -144,6 +145,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "join_request_keywords": "入群自动放行关键词（每项一行）；验证消息或问答答案含任一关键词即命中",
     "join_request_bots": "允许自动审批的 bot 标识，QQ 号或官Bot appid 均可（每项一行）；空列表时所有 bot 均不自动审批",
     "join_request_bot_qq": "官Bot 的 appid→QQ号 绑定；appid 在 bot 连接时自动登记（值为空），只需补填对应 QQ 号；白名单填 appid 时可不填 QQ 号",
+    "qqbot_reply_quote": "官Bot 群聊/单聊被动回复自动以引用形式回复用户消息；引用内容为触发回复的那条消息（被动回复 5 分钟窗口内有效）",
     # 官Bot AppID
     "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
     "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
