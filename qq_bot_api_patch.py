@@ -477,12 +477,16 @@ def patch_qq_send_reply_quote() -> bool:
       段；适配器发送时会用入站消息的 msg_idx(REFIDX) 填充 message_reference，
       客户端以引用形式展示（消息头部带被引用者昵称）。入站消息无 REFIDX
       （无法确定引用目标）时不引用。
-    - config 群管理.at_sender 开启时，群聊回复以官方文档规范的
-      ``<qqbot-at-user id="member_openid" />`` 文本开头 + 换行（@某人，
-      客户端展示 @用户 标签）。C2C 不注入（官方文档：@某人 仅群聊/文字
-      子频道可用）。标签必须严格为文档形式——"/" 前有空格，服务端按精确
-      形式匹配；旧 ``<@openid>`` 处于弃用过渡期，实测会渲染 @ 标签但
-      残留标签原文（2026-09 线上实测）。
+    - config 群管理.at_sender 开启时，群聊回复以官方 @某人 标签
+      ``<qqbot-at-user id="member_openid" />`` + 换行开头，**以 markdown
+      为载体发送**（msg_type=2）——实测群聊纯文本消息（msg_type=0）不
+      解析该标签、整条显示原文，markdown 载体可正常渲染 @ 标签且无残留
+      （2026-09 render_probe 探测结论）。C2C 不注入（官方 @某人 仅群聊/
+      文字子频道可用）。含媒体/富媒体段的消息不注入（markdown 与媒体
+      msg_type 互斥，转换会丢失媒体）；消息本身已是 markdown 时把标签
+      前置进其 content。正文中的 markdown 元字符未做转义——QQ 自定义
+      markdown 对不成对的 ``*`` ``_`` 等按原文显示，若实测出现斜体/标题
+      等样式串扰再补转义。
     """
     from nonebot.adapters.qq import Bot as QQBot
     from nonebot.adapters.qq.event import (
@@ -512,17 +516,6 @@ def patch_qq_send_reply_quote() -> bool:
                     log("DEBUG", f"官Bot引用已附带 REFIDX={ref_idx[:32]}...")
                 else:
                     log("DEBUG", "官Bot引用跳过：触发消息无 msg_idx(REFIDX)")
-            # @回复者：仅群聊。tag 必须与官方文档逐字符一致（含 "/>" 前空格）
-            if flags["at_sender"] and isinstance(event, GroupMessageCreateEvent):
-                member_openid = getattr(
-                    getattr(event, "author", None), "member_openid", None
-                )
-                if member_openid:
-                    prepend.append(
-                        MessageSegment.text(
-                            f'<qqbot-at-user id="{member_openid}" />\n'
-                        )
-                    )
             msg = Message(message)
             # 剥离消息开头为旧 @ 格式预留的换行（与 OneBot 分支保持一致）
             if msg and msg[0].type == "text":
@@ -532,6 +525,22 @@ def patch_qq_send_reply_quote() -> bool:
                         Message([MessageSegment.text(stripped)] if stripped else [])
                         + Message(list(msg[1:]))
                     )
+            # @回复者：仅群聊，markdown 载体（纯文本消息不解析标签，实测）
+            if flags["at_sender"] and isinstance(event, GroupMessageCreateEvent):
+                member_openid = getattr(
+                    getattr(event, "author", None), "member_openid", None
+                )
+                if member_openid:
+                    tag = f'<qqbot-at-user id="{member_openid}" />'
+                    if msg["markdown"]:
+                        md_seg = msg["markdown"][-1]
+                        md_seg.data["markdown"].content = (
+                            f"{tag}\n{md_seg.data['markdown'].content}"
+                        )
+                    elif all(seg.type in ("text", "emoji") for seg in msg):
+                        body = msg.extract_content(escape_text=False)
+                        msg = Message([MessageSegment.markdown(f"{tag}\n{body}")])
+                    # else: 含媒体等富段，markdown 与媒体 msg_type 互斥，跳过 @
             if prepend:
                 msg = Message(prepend) + msg
             message = msg

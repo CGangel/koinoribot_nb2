@@ -51,3 +51,4 @@ src/fonts/*.woff2
 
 # Local activation-code generator
 plugins/yxzm2_keygen/
+plugins/render_probe/
