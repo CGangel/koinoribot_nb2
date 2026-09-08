@@ -361,8 +361,7 @@ async def handle_my_pet(event: Event, bot: Bot, uid: int = Depends(get_uid)):
             growth_str = f'{pet["growth"]:.1f}'
         else:
             growth_str = f'{pet["growth"]:.1f}/{pet["growth_required"]}'
-        msg = f"""
-━━━━━━━━━━
+        msg = f"""━━━━━━━━━━
 名称: {pet['name']}
 类型: {pet['type']} ({stage_name})
 饱食度: 『满足』
@@ -373,8 +372,7 @@ async def handle_my_pet(event: Event, bot: Bot, uid: int = Depends(get_uid)):
 领养日期: {adopted_date}
 请好好照顾她哦，也可以发送 宠物帮助 来查看全部指令~"""
     else:
-        msg = f"""
-━━━━━━━━━━
+        msg = f"""━━━━━━━━━━
 名称: {pet['name']}
 类型: {pet['type']} ({stage_name})
 饱食度: {pet['hunger']:.1f}/{pet['max_hunger']} ({hunger_desc})

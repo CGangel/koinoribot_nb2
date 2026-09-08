@@ -198,7 +198,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "blackusers": "黑名单用户（统一 UID 列表）",
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
-    "permit_bot": "自己的 bot 账号列表（云 bot 模式下必填）；QQ 号或官Bot appid 均可，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",
+    "permit_bot": "豁免名单（云 bot 模式必填）：本名单内的bot将跳过白名单检查；QQ 号/官Bot appid 精确匹配，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",
     "ip_address": "本机公网 IP（云 bot 模式必填；也用于冰祈配置回复的面板地址）",
 }
 
