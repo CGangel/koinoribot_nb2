@@ -661,6 +661,17 @@ def build_image_msg(event: Event, image_data: Union[bytes, str]):
 # ===== 群管理 API=====
 
 
+def parse_urlencoded_form(body: bytes) -> dict[str, str]:
+    """解析 application/x-www-form-urlencoded 请求体为单值字典。
+
+    为免额外装依赖，网页表单处理器统一用本函数解析请求体。
+    """
+    from urllib.parse import parse_qs
+
+    parsed = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+    return {key: values[0] for key, values in parsed.items() if values}
+
+
 def get_image_meta(data: bytes) -> tuple[int, int, str]:
     """从图片字节解析 (宽, 高, content_type)；无法识别时返回 (0, 0, image/png)。
 

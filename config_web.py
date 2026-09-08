@@ -119,7 +119,11 @@ async def _handle_login(request: Request) -> Response:
         if request.headers.get("content-type", "").startswith("application/json"):
             body = await request.json()
         else:
-            body = dict(await request.form())
+            # 面板前端固定发 JSON；此分支为兜底，手动解析 urlencoded
+            # 表单以避开 starlette form() 对 python-multipart 的强依赖
+            from .tools import parse_urlencoded_form
+
+            body = parse_urlencoded_form(await request.body())
         password = str(body.get("password", ""))
     except Exception:
         return JSONResponse({"ok": False, "error": "请求格式错误"}, status_code=400)

@@ -29,7 +29,8 @@ from nonebot.exception import IgnoredException
 
 from ...tools import (
     get_uid, get_group_id_optional, build_forward_node,
-    send_group_forward_msg, get_sender_nickname, is_onebot, is_qqbot
+    send_group_forward_msg, get_sender_nickname, is_onebot, is_qqbot,
+    parse_urlencoded_form,
 )
 from ...uid_manager import get_external_ids
 from ...su_manager import is_su
@@ -532,7 +533,8 @@ async def _handle_whitelist_web_index(request: Request) -> Response:
 
 
 async def _handle_whitelist_web_query(request: Request) -> Response:
-    data = await request.form()
+    # starlette request.form() 依赖 python-multipart，此处手动解析 urlencoded
+    data = parse_urlencoded_form(await request.body())
     owner_qq = str(data.get("owner_qq", "")).strip()
     bot_qq = str(data.get("bot_qq", "")).strip()
 
