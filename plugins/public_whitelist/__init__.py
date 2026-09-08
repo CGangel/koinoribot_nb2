@@ -640,10 +640,15 @@ async def _whitelist_filter(event: Event):
     if not self_id:
         return
 
-    # koinori自己的bot账号不受白名单限制
+    # koinori自己的bot账号不受白名单限制（OneBot QQ号 / 官Bot appid 直接命中；
+    # 官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中，与 join_request_bots 规则一致）
     permit_bot = {str(b) for b in koinori_config.permit_bot}
     if self_id in permit_bot:
         return
+    if is_qqbot(event):
+        bound_qq = koinori_config.join_request_bot_qq.get(self_id)
+        if bound_qq and str(bound_qq) in permit_bot:
+            return
 
     # 外部bot：必须在白名单中
     if self_id not in _cache_bot_set:
