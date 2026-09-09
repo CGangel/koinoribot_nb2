@@ -2,12 +2,15 @@
 
 QQ 官方平台的 markdown 内嵌图片要求公网可访问 URL（发送时平台会下载
 转存），本地渲染的字节图（BuildImage 面板等 base64）没有 URL。本模块把
-字节图短暂暴露为本服务上的 URL（默认 10 分钟过期），地址基于 config
-的 ip_address 与驱动端口（与 OneBot ws 端口共用，路径 /img/{token}，
+字节图**仅在内存中**短暂暴露为本服务上的 URL，不落盘。清理策略（面向
+0.5G 内存小机）：平台首次抓取（即转存完成）后宽限 3 秒立即删除；从未
+被抓取的条目由 10 秒 TTL 兜底；并发条目上限 64。地址基于 config 的
+ip_address 与驱动端口（与 OneBot ws 端口共用，路径 /img/{token}，
 不额外开防火墙端口）。未配置 ip_address 时 serve_image 返回 None，
 调用方（qq_bot_api_patch）回退到降级引用路径。
 """
 
+import asyncio
 import secrets
 import time
 from typing import Optional
@@ -20,17 +23,35 @@ from starlette.routing import Route, Router
 
 from .config_store import config
 
-# 平台发送时会转存，URL 只需发送瞬间可达；过期仅供兜底清理
-_TTL_SECONDS = 600
+# 平台发送消息时会立即抓取转存图片——路由被首次访问即视为转存发生，
+# 短宽限后立即删除；TTL 仅兜底"从未被平台抓取"的条目（发送失败等）。
+# 目标部署环境为 0.5G 内存小机，两个窗口都保持极短。
+_TTL_SECONDS = 10
+
+# 首次抓取后的保留宽限：覆盖平台偶发的瞬时重试，到点即删
+_GRACE_SECONDS = 3
+
+# 内存兜底：并发条目超限时优先逐出最快过期的条目（正常流量远达不到）
+_MAX_ENTRIES = 64
 
 # token -> (图片字节, content_type, 过期时间戳)
 _store: dict[str, tuple[bytes, str, float]] = {}
 _mounted = False
 
+# 已排定延迟删除的 token 与其任务引用（防任务被 GC）
+_scheduled: set[str] = set()
+_delete_tasks: set = set()
+
 
 def _sweep(now: float) -> None:
     for token in [t for t, (_, _, exp) in _store.items() if exp < now]:
         _store.pop(token, None)
+    overflow = len(_store) - _MAX_ENTRIES
+    if overflow > 0:
+        for token, _ in sorted(
+            _store.items(), key=lambda kv: kv[1][2]
+        )[:overflow]:
+            _store.pop(token, None)
 
 
 async def _handle_image(request: Request) -> Response:
@@ -39,7 +60,24 @@ async def _handle_image(request: Request) -> Response:
         return PlainTextResponse("图片不存在或已过期", status_code=404)
     data, content_type, _ = entry
     _sweep(time.time())
+    _schedule_delete(request.path_params["token"])
     return Response(content=data, media_type=content_type)
+
+
+def _schedule_delete(token: str) -> None:
+    """平台首次抓取（= 转存发生）后，宽限数秒即删除该条目。"""
+
+    async def _delete_later() -> None:
+        await asyncio.sleep(_GRACE_SECONDS)
+        _scheduled.discard(token)
+        _store.pop(token, None)
+
+    if token in _scheduled:
+        return
+    _scheduled.add(token)
+    task = asyncio.get_running_loop().create_task(_delete_later())
+    _delete_tasks.add(task)
+    task.add_done_callback(_delete_tasks.discard)
 
 
 def build_router() -> Router:
@@ -83,7 +121,7 @@ def serve_image(data: bytes, content_type: str = "image/png") -> Optional[str]:
             logger.warning(f"[image_host] 图床路由挂载失败: {e}")
             return None
     now = time.time()
-    _sweep(now)
     token = secrets.token_urlsafe(16)
     _store[token] = (data, content_type, now + _TTL_SECONDS)
+    _sweep(now)  # 插入后收敛：过期清理 + 并发上限逐出（含本次注册）
     return f"{base}/img/{token}"
