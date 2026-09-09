@@ -535,8 +535,7 @@ def patch_qq_send_reply_quote() -> bool:
                         seg.type in ("text", "emoji", "image", "file_image")
                         for seg in msg
                     ):
-                        from .image_host import serve_image
-                        from .tools import get_image_meta
+                        from .image_host import embed_image
 
                         lines: list[str] = []
                         buf: list[str] = []
@@ -562,10 +561,12 @@ def patch_qq_send_reply_quote() -> bool:
                                 if not isinstance(content, (bytes, bytearray)):
                                     embed_failed = True
                                     break
-                                width, height, ctype = get_image_meta(
-                                    bytes(content)
-                                )
-                                url = serve_image(bytes(content), ctype) or ""
+                                # 字节图：经图床转公网 URL（超限自动压缩，宽高同步）
+                                embedded = embed_image(bytes(content))
+                                if embedded is None:
+                                    embed_failed = True
+                                    break
+                                url, width, height = embedded
                             if not url:
                                 embed_failed = True
                                 break

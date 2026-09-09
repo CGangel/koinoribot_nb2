@@ -28,15 +28,99 @@ from .config_store import config
 # 目标部署环境为 0.5G 内存小机，两个窗口都保持极短。
 _TTL_SECONDS = 10
 
-# 首次抓取后的保留宽限：覆盖平台偶发的瞬时重试，到点即删
-_GRACE_SECONDS = 3
+# 首次抓取后的保留宽限：覆盖平台转存的延迟与重试（实测有转存失败
+# 案例，宽限过短会导致平台二次抓取 404），到点即删
+_GRACE_SECONDS = 30
 
 # 内存兜底：并发条目超限时优先逐出最快过期的条目（正常流量远达不到）
 _MAX_ENTRIES = 64
 
+# 平台对 markdown 内嵌图片的转存有大小限制（文档未写明；实测数百 KB
+# 正常、1-3MB 失败），超过阈值的字节图先压缩再上图床
+_COMPRESS_THRESHOLD = 1024 * 1024  # 1MB
+# 质量阶梯从高起：JPEG 默认 4:2:0 色度抽样会让高饱和图色彩发糊
+# （实测 1024x1536 q90 仅 317KB，余量充足），统一用 4:4:4 保全色彩分辨率
+_COMPRESS_QUALITIES = (95, 92, 90, 85, 80, 75, 70, 60, 50)
+
 # token -> (图片字节, content_type, 过期时间戳)
 _store: dict[str, tuple[bytes, str, float]] = {}
 _mounted = False
+
+
+def _compress_image(data: bytes, content_type: str) -> tuple[bytes, str, int, int]:
+    """超大图压缩到平台可转存量级：先降 JPEG 质量（保尺寸），仍超限再缩尺寸。
+
+    返回 (字节, content_type, 宽, 高)；失败时原样返回。
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        img = Image.open(BytesIO(data))
+        img.load()  # 强制载入，避免懒加载流与 optimize 二次读取冲突
+        width, height = img.size
+        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            rgba = img.convert("RGBA")
+            background.paste(rgba, mask=rgba.getchannel("A"))
+            img = background
+        else:
+            img = img.convert("RGB")
+
+        for quality in _COMPRESS_QUALITIES:
+            buf = BytesIO()
+            img.save(buf, "JPEG", quality=quality, subsampling=0)
+            if buf.tell() <= _COMPRESS_THRESHOLD:
+                logger.info(
+                    f"[image_host] 大图压缩 {len(data)}B→{buf.tell()}B "
+                    f"(JPEG q{quality} 4:4:4, {width}x{height})"
+                )
+                return buf.getvalue(), "image/jpeg", width, height
+
+        # 降质量仍超限（极端噪声图等）：逐级缩尺寸
+        for scale in (0.75, 0.5, 0.35):
+            resized = img.resize(
+                (max(1, int(width * scale)), max(1, int(height * scale)))
+            )
+            buf = BytesIO()
+            resized.save(buf, "JPEG", quality=70, subsampling=0)
+            if buf.tell() <= _COMPRESS_THRESHOLD:
+                logger.info(
+                    f"[image_host] 大图压缩+缩放 {len(data)}B→{buf.tell()}B "
+                    f"({width}x{height}→{resized.size[0]}x{resized.size[1]})"
+                )
+                return (
+                    buf.getvalue(),
+                    "image/jpeg",
+                    resized.size[0],
+                    resized.size[1],
+                )
+        logger.warning(
+            f"[image_host] 大图压缩后仍超限（{len(data)}B），按原图注册"
+        )
+        return data, content_type, width, height
+    except Exception as e:
+        logger.warning(f"[image_host] 图片压缩失败，按原图注册: {e}")
+        return data, content_type, 0, 0
+
+
+def embed_image(data: bytes, content_type: str = "image/png") -> Optional[tuple[str, int, int]]:
+    """字节图 → (公网 URL, 宽, 高)，供 markdown 内嵌；无法暴露时返回 None。
+
+    超过转存大小阈值的图片自动压缩（JPEG），返回的宽高与压缩结果一致，
+    调用方直接用于 ``![图片 #Wpx #Hpx](url)`` 标签。
+    """
+    from .tools import get_image_meta
+
+    if len(data) > _COMPRESS_THRESHOLD:
+        data, content_type, width, height = _compress_image(data, content_type)
+    else:
+        width, height, _ = get_image_meta(data)
+    url = serve_image(data, content_type)
+    if url is None:
+        return None
+    return url, width, height
 
 # 已排定延迟删除的 token 与其任务引用（防任务被 GC）
 _scheduled: set[str] = set()
