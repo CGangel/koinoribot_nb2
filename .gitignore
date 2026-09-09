@@ -25,7 +25,7 @@ venv/
 ENV/
 env/
 .venv/
-koinori_config.py
+passwd.py
 /tests/
 
 # IDE
