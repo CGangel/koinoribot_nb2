@@ -23,7 +23,15 @@ SU_TRANSFER_DAILY_LIMIT = 100000
 
 
 class _SuManager:
-    """内部 SU 管理实现。外部请使用本模块下方的包装函数。"""
+    """内部 SU 管理实现。外部请使用本模块下方的包装函数。
+
+    等级查询走内存缓存（配置种子 + 数据库表在启动/首次查询时一次性
+    加载），注册新 SU 时增量更新——热路径（限频等每消息检查）不再读库。
+    手工改库/改 passwd.py 后需重启或调用 reload_su_cache()。
+    """
+
+    def __init__(self):
+        self._level_cache: Optional[dict[int, int]] = None
 
     def get_db_path(self) -> str:
         plugin_dir = Path(__file__).parent
@@ -36,6 +44,31 @@ class _SuManager:
             return get_passwd_superusers()
         except Exception:
             return []
+
+    def reload_level_cache(self) -> dict[int, int]:
+        """一次性加载全部 SU 等级到内存（数据库行优先，配置种子兜底等级 0）。"""
+        cache: dict[int, int] = {}
+        for uid in self.get_config_superusers():
+            cache.setdefault(int(uid), SU_LEVEL_CONTRIBUTOR)
+        try:
+            if self.table_exists():
+                conn = sqlite3.connect(self.get_db_path())
+                try:
+                    rows = conn.execute("SELECT uid, level FROM superusers").fetchall()
+                finally:
+                    conn.close()
+                for uid, level in rows:
+                    cache[int(uid)] = int(level)
+        except Exception as e:
+            logger.error(f"[su_manager] failed to load SU level cache: {e}")
+        self._level_cache = cache
+        logger.info(f"[su_manager] SU 等级缓存已加载：{len(cache)} 人")
+        return cache
+
+    def _levels(self) -> dict[int, int]:
+        if self._level_cache is None:
+            self.reload_level_cache()
+        return self._level_cache
 
     def query_table(self, uid: int) -> Optional[int]:
         conn = sqlite3.connect(self.get_db_path())
@@ -85,6 +118,7 @@ class _SuManager:
             logger.error(f"[su_manager] failed to initialize superusers table: {e}")
         finally:
             conn.close()
+        self.reload_level_cache()
 
     def register_su(self, uid: int, level: int, activation_code: str) -> bool:
         conn = sqlite3.connect(self.get_db_path())
@@ -98,6 +132,8 @@ class _SuManager:
                 (uid, level, time.time(), activation_code),
             )
             conn.commit()
+            if self._level_cache is not None:
+                self._level_cache[int(uid)] = int(level)
             return True
         except sqlite3.IntegrityError:
             logger.warning(f"[su_manager] uid {uid} is already SU, skip registration")
@@ -109,22 +145,7 @@ class _SuManager:
             conn.close()
 
     def get_su_level(self, uid: int) -> Optional[int]:
-        try:
-            level = self.query_table(uid)
-            if level is not None:
-                return level
-        except sqlite3.OperationalError:
-            config_sus = self.get_config_superusers()
-            if uid in config_sus:
-                return SU_LEVEL_CONTRIBUTOR
-            return None
-        except Exception as e:
-            logger.error(f"[su_manager] failed to query SU table: {e}")
-
-        config_sus = self.get_config_superusers()
-        if uid in config_sus:
-            return SU_LEVEL_CONTRIBUTOR
-        return None
+        return self._levels().get(int(uid))
 
     def is_su(self, uid: int) -> bool:
         return self.get_su_level(uid) is not None
@@ -136,41 +157,13 @@ class _SuManager:
         return self.get_su_level(uid) == SU_LEVEL_CONTRIBUTOR
 
     def get_all_su_uids(self) -> list[int]:
-        su_uids = set(self.get_config_superusers())
-
-        try:
-            if self.table_exists():
-                conn = sqlite3.connect(self.get_db_path())
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT uid FROM superusers")
-                    for row in cursor.fetchall():
-                        su_uids.add(row[0])
-                finally:
-                    conn.close()
-        except Exception as e:
-            logger.error(f"[su_manager] failed to get all SU uids: {e}")
-
-        return list(su_uids)
+        return list(self._levels())
 
     def get_excluded_su_uids(self) -> list[int]:
-        excluded = set(self.get_config_superusers())
-
-        try:
-            if self.table_exists():
-                conn = sqlite3.connect(self.get_db_path())
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT uid, level FROM superusers")
-                    for row in cursor.fetchall():
-                        if row[1] != SU_LEVEL_NORMAL:
-                            excluded.add(row[0])
-                finally:
-                    conn.close()
-        except Exception as e:
-            logger.error(f"[su_manager] failed to get excluded SU uids: {e}")
-
-        return list(excluded)
+        return [
+            uid for uid, level in self._levels().items()
+            if level != SU_LEVEL_NORMAL
+        ]
 
     def get_today_str(self) -> str:
         return datetime.now().strftime("%Y-%m-%d")
@@ -325,6 +318,11 @@ def get_su_level(uid: int) -> Optional[int]:
     return _su_manager.get_su_level(uid)
 
 
+def reload_su_cache() -> dict[int, int]:
+    """重载 SU 等级内存缓存（启动时已自动加载；手工改库/改 passwd 后调用）。"""
+    return _su_manager.reload_level_cache()
+
+
 def get_all_su_uids() -> list[int]:
     return _su_manager.get_all_su_uids()
 
@@ -353,6 +351,7 @@ __all__ = [
     "is_su_normal",
     "is_su_contributor",
     "get_su_level",
+    "reload_su_cache",
     "get_all_su_uids",
     "get_excluded_su_uids",
     "record_su_usage",

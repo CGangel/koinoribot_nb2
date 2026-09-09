@@ -103,6 +103,7 @@ class KoinoribotConfig(BaseModel):
 
     # 黑名单用户
     blackusers: list = []
+    global_msg_cd: int = 1                      # 全局每用户消息冷却（秒，0=关闭）
 
     # 公网白名单模式
     public_bot: bool = False                 # 是否启用云bot模式
@@ -135,7 +136,7 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "daily_limit", "ai_draw_enable", "ai_draw_size", "shaojo_image_size",
         "aidraw_quality", "aidraw_high_quality", "enable_gold_aidraw",
     ],
-    "其他配置": ["star_price", "extra_gold", "blackusers"],
+    "其他配置": ["star_price", "extra_gold", "blackusers", "global_msg_cd"],
     "公网白名单模式": ["public_bot", "permit_bot", "ip_address"],
 }
 
@@ -196,6 +197,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "star_price": "多连钓鱼星星单价（0 = 不消耗星星）",
     "extra_gold": "钓鱼补贴开关：1 时百连钓鱼未用星星可获 300 金币补贴",
     "blackusers": "黑名单用户（统一 UID 列表）",
+    "global_msg_cd": "全局限频：同一用户两条消息的最小间隔（秒），间隔内的消息静默忽略；SU 豁免；0 = 关闭",
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
     "permit_bot": "豁免名单（云 bot 模式必填）：本名单内的bot将跳过白名单检查；QQ 号/官Bot appid 精确匹配，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",

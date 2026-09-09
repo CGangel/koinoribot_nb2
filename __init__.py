@@ -29,6 +29,9 @@ from . import qq_bot_api_patch as _adapter_patch
 
 _adapter_patch.apply_all()
 
+# 全局消息限频（event_preprocessor：每用户最小消息间隔，SU 豁免，面板可调）
+from . import rate_limit as _rate_limit
+
 # 导入核心模块
 from . import uid_manager
 from . import money
