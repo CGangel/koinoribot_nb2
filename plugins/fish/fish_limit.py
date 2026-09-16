@@ -1,11 +1,11 @@
-"""每日钓鱼次数限制工具（独立于钓鱼玩法插件）。
+"""每日钓鱼次数限制（fish 模块内的共用工具）。
 
 从旧版 fishing 插件的 util.DatabaseManager 抽出，只保留 fish_limit 表
 相关能力：记录每个 UID 当日已钓鱼次数与当日上限。宠物技能（捕鱼达人）、
 幸运转盘等奖励通过传入负数 count 为用户累加当日上限。
 
-旧版钓鱼插件已移除，本工具被 chongwu / chaogu / plugins/fish（新版钓鱼，
-每日次数限制）共同使用，避免多套口径。
+虽随 fish 模块存放，但 **chongwu / chaogu 也共用**这套每日次数口径
+（三方写入同一张 fish_limit 表）；本模块不依赖 fish 玩法本身，可独立导入。
 """
 
 import sqlite3
@@ -14,7 +14,7 @@ from typing import Optional
 
 from nonebot.log import logger
 
-from .config_store import config
+from ...config_store import config
 
 
 def _fish_limit_statement(
