@@ -203,7 +203,7 @@ class KoinoribotConfig(BaseModel):
     fish_orb_upgrade_base_price: int = 100
     # 幸运宝珠：最高等级 / 1 级能量上限 / 每升 1 级能量上限递减
     fish_orb_max_level: int = 5
-    fish_orb_energy_cap_base: int = 90
+    fish_orb_energy_cap_base: int = 50
     fish_orb_cap_reduce_per_level: int = 10
     # 幸运暴击只出该稀有度及以上、该级别及以上的鱼
     fish_orb_lucky_min_rarity: str = "史诗"

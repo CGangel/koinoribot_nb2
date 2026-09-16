@@ -352,7 +352,7 @@ async def handle_cast(
         used, cap = FishLimitManager.get_user_fish_count_today(uid)
         await cast_cmd.finish(
             f"今日钓鱼次数已用完（{used}/{cap}），明天再来吧~\n"
-            "（幸运转盘有机会获得额外次数）"
+            "（幸运转盘、宠物技能有机会获得额外次数）"
         )
 
     result = await FishService.do_cast(uid)
