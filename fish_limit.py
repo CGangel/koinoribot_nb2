@@ -1,11 +1,20 @@
+"""每日钓鱼次数限制工具（独立于钓鱼玩法插件）。
+
+从旧版 fishing 插件的 util.DatabaseManager 抽出，只保留 fish_limit 表
+相关能力：记录每个 UID 当日已钓鱼次数与当日上限。宠物技能（捕鱼达人）、
+幸运转盘等奖励通过传入负数 count 为用户累加当日上限。
+
+旧版钓鱼插件已移除，本工具被 chongwu / chaogu / plugins/fish（新版钓鱼，
+每日次数限制）共同使用，避免多套口径。
+"""
+
 import sqlite3
-import time
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional
 
-from nonebot import logger
+from nonebot.log import logger
 
-from ...config_store import config
+from .config_store import config
 
 
 def _fish_limit_statement(
@@ -14,6 +23,11 @@ def _fish_limit_statement(
     count: int,
     default_limit: int,
 ):
+    """根据当前行与目标增量生成待执行的 SQL 语句。
+
+    result 为该 uid 的现有行（date_str, count, limit_count），None 表示无行。
+    count 为正数表示消耗次数，负数表示增加当日上限。
+    """
     if result is None:
         if count < 0:
             return (
@@ -49,18 +63,18 @@ def _fish_limit_statement(
     )
 
 
-class DatabaseManager:
-    """数据库管理器"""
-    
+class FishLimitManager:
+    """fish_limit 表管理器（classmethod 风格，路径由外部注入）。"""
+
     _db_path: Optional[str] = None
     _db_initialized: bool = False
-    
+
     @classmethod
     def set_db_path(cls, path: str):
         """设置数据库路径"""
         cls._db_path = path
         cls._db_initialized = False
-    
+
     @classmethod
     def get_connection(cls) -> sqlite3.Connection:
         """获取数据库连接"""
@@ -71,27 +85,16 @@ class DatabaseManager:
         # 启用外键约束
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
-    
+
     @classmethod
-    def init_fishing_database(cls):
-        """初始化钓鱼数据库"""
+    def init_database(cls):
+        """初始化 fish_limit 表（幂等）"""
         if cls._db_initialized:
             return
-        
+
         conn = cls.get_connection()
         cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS fishing (
-                uid INTEGER PRIMARY KEY,
-                fish_data TEXT NOT NULL,
-                statis_data TEXT NOT NULL,
-                rod_data TEXT NOT NULL,
-                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
-            )
-        ''')
-        
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fish_limit (
                 uid INTEGER PRIMARY KEY,
@@ -103,63 +106,32 @@ class DatabaseManager:
             )
         ''')
 
-        # 漂流瓶主表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS bottles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uid INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                pick_count INTEGER DEFAULT 0,
-                deleted INTEGER DEFAULT 0,
-                created_time INTEGER NOT NULL
-            )
-        ''')
-
-        # 漂流瓶评论表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS bottle_comments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bottle_id INTEGER NOT NULL,
-                uid INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                created_time INTEGER NOT NULL,
-                FOREIGN KEY (bottle_id) REFERENCES bottles(id) ON DELETE CASCADE
-            )
-        ''')
-
-        # 确保 bottles 的 AUTOINCREMENT 从 10001 开始
-        cursor.execute("SELECT COUNT(*) FROM bottles")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute(
-                "INSERT OR IGNORE INTO sqlite_sequence (name, seq) VALUES ('bottles', 10000)"
-            )
-
         conn.commit()
         conn.close()
         cls._db_initialized = True
-        logger.info("钓鱼数据库初始化完成")
+        logger.info("fish_limit 表初始化完成")
 
     @classmethod
     def check_and_update_fish_limit(cls, uid: int, count: int) -> bool:
         """
         检查并更新用户钓鱼次数限制
-        
+
         Args:
             uid: 用户ID
-            count: 要增加的次数（可以是负数）
-            
+            count: 要增加的次数（可以是负数，负数表示增加当日上限）
+
         Returns:
             如果未达到上限则增加计数并返回True，达到上限返回False
         """
-        cls.init_fishing_database()
-        
+        cls.init_database()
+
         today_str = datetime.now().strftime('%Y-%m-%d')
         conn = cls.get_connection()
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute(
-                'SELECT date_str, count, limit_count FROM fish_limit WHERE uid = ?', 
+                'SELECT date_str, count, limit_count FROM fish_limit WHERE uid = ?',
                 (uid,)
             )
             result = cursor.fetchone()
@@ -176,11 +148,11 @@ class DatabaseManager:
 
             sql, parameters = statement
             cursor.execute(sql, (uid, *parameters) if sql.startswith('INSERT') else (*parameters, uid))
-            
+
             conn.commit()
             conn.close()
             return True
-            
+
         except Exception as e:
             conn.rollback()
             conn.close()
@@ -188,80 +160,57 @@ class DatabaseManager:
             return False
 
     @classmethod
-    def get_user_fish_count_today(cls, uid: int) -> tuple:
+    def refund_today_count(cls, uid: int, count: int = 1) -> bool:
+        """退还今日已消耗的钓鱼次数（当日有记录才生效，减到 0 为止）。
+
+        供钓鱼入口在「未实际抛竿」（如还有待处理鱼获、渔具损坏）时回滚
+        已扣的次数，保证次数只在真正抛竿时消耗。
         """
-        获取用户今日已钓鱼次数
-        
-        Returns:
-            (today_count, limit_count)
-        """
-        cls.init_fishing_database()
-        
+        cls.init_database()
+
         today_str = datetime.now().strftime('%Y-%m-%d')
         conn = cls.get_connection()
         cursor = conn.cursor()
-        
+        try:
+            cursor.execute(
+                'UPDATE fish_limit SET count = MAX(0, count - ?), '
+                'updated_time = CURRENT_TIMESTAMP '
+                'WHERE uid = ? AND date_str = ?',
+                (count, uid, today_str),
+            )
+            affected = cursor.rowcount
+            conn.commit()
+            conn.close()
+            return affected > 0
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"退还钓鱼次数时出错: {e}")
+            return False
+
+    @classmethod
+    def get_user_fish_count_today(cls, uid: int) -> tuple:
+        """
+        获取用户今日已钓鱼次数
+
+        Returns:
+            (today_count, limit_count)
+        """
+        cls.init_database()
+
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        conn = cls.get_connection()
+        cursor = conn.cursor()
+
         cursor.execute(
-            'SELECT count, limit_count FROM fish_limit WHERE uid = ? AND date_str = ?', 
+            'SELECT count, limit_count FROM fish_limit WHERE uid = ? AND date_str = ?',
             (uid, today_str)
         )
         result = cursor.fetchone()
-        
+
         conn.close()
-        
+
         if result:
             return result['count'], result['limit_count']
         else:
             return 0, config.fish_limit_count
-
-
-class CooldownManager:
-    """冷却时间管理器"""
-    
-    _cooldown_data: Dict[int, float] = {}
-    
-    def __init__(self, default_cd: float = 5.0):
-        """
-        初始化冷却管理器
-        
-        Args:
-            default_cd: 默认冷却时间（秒）
-        """
-        self._default_cd = default_cd
-    
-    def start_cd(self, uid: int, cd_time: float = None):
-        """
-        启动用户冷却
-        
-        Args:
-            uid: 用户ID
-            cd_time: 冷却时间，不传则使用默认值
-        """
-        cd = cd_time if cd_time is not None else self._default_cd
-        CooldownManager._cooldown_data[uid] = time.time() + cd
-    
-    def left_time(self, uid: int) -> float:
-        """
-        获取用户剩余冷却时间
-        
-        Args:
-            uid: 用户ID
-            
-        Returns:
-            剩余冷却时间（秒），已过期返回0
-        """
-        if uid not in CooldownManager._cooldown_data:
-            return 0
-        return max(0, CooldownManager._cooldown_data[uid] - time.time())
-    
-    def check(self, uid: int) -> bool:
-        """
-        检查用户冷却是否结束
-        
-        Args:
-            uid: 用户ID
-            
-        Returns:
-            True 表示冷却已结束，可以执行操作
-        """
-        return self.left_time(uid) <= 0

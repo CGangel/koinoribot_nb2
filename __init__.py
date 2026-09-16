@@ -13,7 +13,7 @@ from nonebot.plugin import PluginMetadata
 from .config import Config
 
 # 配置存储：建表 + 旧文件迁移 + 一次性加载进内存。
-# 必须在子插件加载前完成（fishing 等插件在导入期读取配置值）。
+# 必须在子插件加载前完成（子插件在导入期读取配置值）。
 from . import config_store
 from .config_store import config as koinori_config
 
@@ -35,6 +35,7 @@ from . import rate_limit as _rate_limit
 # 导入核心模块
 from . import uid_manager
 from . import money
+from . import fish_limit
 from . import resources
 from . import nickname
 from . import tools as _tools
@@ -67,11 +68,13 @@ async def init_koinoribot():
     uid_manager.set_database_path(str(db_path))
     money.set_database_path(str(db_path))
     nickname.set_db_path(str(db_path))
+    fish_limit.FishLimitManager.set_db_path(str(db_path))
 
     # 初始化数据库
     uid_manager.init_uid_database()
     money.init_money_database()
     nickname.init_nickname_database()
+    fish_limit.FishLimitManager.init_database()
 
     # 读取官Bot AppID配置
     if koinori_config.qqbot_appid:

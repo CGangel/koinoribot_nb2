@@ -1,0 +1,104 @@
+{
+  "image": "aquarium_card.png",
+  "scale": 2,
+  "font": "HYWenHei-85W.ttf",
+  "w": 544,
+  "block_x": 16,
+  "block_w": 512,
+  "header_h": 62,
+  "title_h": 22,
+  "row_h": 20,
+  "footer_h": 74,
+  "max_rows": 20,
+  "block_pad": 10,
+  "row_bg": "#FFFCF6",
+  "palette": {
+    "bg_colors": 26,
+    "fade_steps": 4
+  },
+  "columns": {
+    "name": 0,
+    "rarity": 77,
+    "length": 122,
+    "price": 238,
+    "lucky": 357,
+    "time": 426
+  },
+  "column_order": [
+    "name",
+    "rarity",
+    "length",
+    "price",
+    "lucky",
+    "time"
+  ],
+  "column_labels": {
+    "name": "名称",
+    "rarity": "稀有度",
+    "length": "长度(cm)",
+    "price": "售价(金币)",
+    "lucky": "幸运值",
+    "time": "成长所需时间"
+  },
+  "data_size": 10,
+  "head_size": 11,
+  "header": {
+    "title": {
+      "x": 24,
+      "size": 20,
+      "color": "#FFFFFF"
+    },
+    "count": {
+      "size": 14,
+      "color": "#EAF6F9",
+      "x_pad": 24
+    }
+  },
+  "footer": {
+    "x": 20,
+    "lines": [
+      {
+        "dy": 15,
+        "size": 10,
+        "color": "#9A7A5C"
+      },
+      {
+        "dy": 30,
+        "size": 10,
+        "color": "#9A7A5C"
+      },
+      {
+        "dy": 45,
+        "size": 10,
+        "color": "#9A7A5C"
+      },
+      {
+        "dy": 60,
+        "size": 10,
+        "color": "#9A7A5C"
+      }
+    ]
+  },
+  "colors": {
+    "rarity": {
+      "普通": "#7B858C",
+      "稀有": "#2E7AC4",
+      "史诗": "#7A5AC8",
+      "传说": "#D9862E",
+      "神话": "#CE4239"
+    },
+    "grade": {
+      "D": "#8A94A0",
+      "C": "#3FA76A",
+      "B": "#2E86C8",
+      "A": "#8B5AD0",
+      "S": "#E08A2A",
+      "X": "#D6402F"
+    },
+    "name": "#3A2A1C",
+    "sub": "#96785C",
+    "price": "#D6832A",
+    "label": "#9A7A5C",
+    "grown": "#2F9E63"
+  }
+}

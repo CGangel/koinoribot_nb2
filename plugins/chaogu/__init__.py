@@ -25,7 +25,7 @@ from nonebot import logger
 from ...money import money
 from ...config_store import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain, get_at_uid, build_image_msg
-from ..fishing.util import DatabaseManager as FishingDB
+from ...fish_limit import FishLimitManager as FishingDB
 from ...nickname import get_user_nickname
 from ..ai_draw import add_free_draw_count
 
@@ -1069,9 +1069,9 @@ async def give_prize(uid: int, prize_tier: str) -> str:
 
 
 def fish_count_prize(uid: int, prize_tier: str) -> Optional[int]:
-    """根据奖品档位计算额外钓鱼次数奖励"""
+    """根据奖品档位计算额外钓鱼次数奖励（最低 1 次，最高 10 次）"""
     prize_config = PRIZE_CONFIG[prize_tier]
-    count = max(100, int(random.randint(5, 10) * prize_config['fish_add'] * 100))
+    count = max(1, min(10, int(random.randint(1, 3) * prize_config['fish_add'])))
     add_count = count * -1  # 负数表示增加钓鱼次数上限
     if FishingDB.check_and_update_fish_limit(uid, add_count):
         return count

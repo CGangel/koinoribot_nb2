@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="480" viewBox="0 0 820 480">
+  <!-- 无边框模式：底图铺满整幅，无外圈描边、无投影、无圆角 -->
+  <rect x="0" y="0" width="820" height="480" fill="#FFF6E9"/>
+
+  <g>
+    <!-- 顶栏：仅此处的配色随稀有度主题变化 -->
+    <rect x="0" y="0" width="820" height="102" fill="#F6A85C"/>
+    <rect x="0" y="102" width="820" height="7" fill="#EF9440"/>
+    <circle cx="724" cy="30" r="20" fill="#FFFFFF" opacity="0.14"/>
+    <circle cx="776" cy="62" r="12" fill="#FFFFFF" opacity="0.16"/>
+    <circle cx="678" cy="66" r="7" fill="#FFFFFF" opacity="0.16"/>
+
+    <!-- 三栏分隔线 -->
+    <line x1="240" y1="128" x2="240" y2="468" stroke="#EFDCC4" stroke-width="2"/>
+    <line x1="658" y1="128" x2="658" y2="468" stroke="#EFDCC4" stroke-width="2"/>
+
+    <!-- ===== 左栏：鱼线 / 空军波浪线（缩略图由渲染时粘贴，底图不留框） ===== -->
+    <line x1="122" y1="118" x2="122" y2="206" stroke="#D7B18C" stroke-width="2"/>
+    <circle cx="122" cy="118" r="4" fill="#D7B18C"/>
+
+    <!-- ===== 中栏：信息面板（某栏不显示时把该栏文字留空即可） ===== -->
+    <rect x="248" y="158" width="150" height="50" rx="12" fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+    <rect x="248" y="214" width="150" height="50" rx="12" fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+    <rect x="248" y="270" width="150" height="50" rx="12" fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+    <rect x="248" y="326" width="150" height="50" rx="12" fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+    <rect x="248" y="384" width="150" height="82" rx="12" fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+    <rect x="408" y="158" width="240" height="308" rx="12" fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+    <line x1="422" y1="235" x2="634" y2="235" stroke="#EFDCC4" stroke-width="1.5"/><line x1="422" y1="312" x2="634" y2="312" stroke="#EFDCC4" stroke-width="1.5"/><line x1="422" y1="389" x2="634" y2="389" stroke="#EFDCC4" stroke-width="1.5"/>
+
+    <!-- ===== 右栏（半宽）：选项按钮 + 剩余次数框 ===== -->
+    <rect x="668" y="162" width="140" height="50" rx="14" fill="#FFF1DC" stroke="#F3CE96" stroke-width="1.5"/>
+    <rect x="668" y="222" width="140" height="50" rx="14" fill="#FFF1DC" stroke="#F3CE96" stroke-width="1.5"/>
+    <rect x="668" y="282" width="140" height="50" rx="14" fill="#FFF1DC" stroke="#F3CE96" stroke-width="1.5"/>
+    <line x1="668" y1="356"
+          x2="808" y2="356"
+          stroke="#EFDCC4" stroke-width="2"/>
+    <rect x="668" y="390" width="140"
+          height="48" rx="12"
+          fill="#FFFCF6" stroke="#F2E4D2" stroke-width="1.5"/>
+  </g>
+</svg>

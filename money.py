@@ -15,12 +15,8 @@ from nonebot.log import logger
 from .config_store import get_config
 
 
-# 默认初始资产
+# 非货币字段固定默认值（货币初始值在 config_store 热更新配置中）
 DEFAULT_ASSETS = {
-    "gold": 3000,  # 金币
-    "luckygold": 1,  # 幸运币
-    "starstone": 12500,  # 星星
-    "kirastone": 5,  # 羽毛石/宝石
     "last_login": 0,  # 最后签到日期
     "rp": 0,  # 运势值
     "logindays": 0,  # 连续签到天数
@@ -29,13 +25,23 @@ DEFAULT_ASSETS = {
     "badluck": 0,  # 忌做事项索引
 }
 
-# 资产上限（运行时读取，8889 面板修改后即时生效）
+# 资产上限（运行时读取，配置面板修改后即时生效）
 def _gold_max() -> int:
     return get_config().gold_max
 
-KEYWORD_LIST = list(DEFAULT_ASSETS)
-KEYWORD_SET = set(KEYWORD_LIST)
+# 新用户钱包预设（运行时读取，配置面板修改后即时生效）
+def _init_assets() -> dict:
+    cfg = get_config()
+    return {
+        "gold": cfg.init_gold,  # 金币
+        "luckygold": cfg.init_luckygold,  # 幸运币
+        "starstone": cfg.init_starstone,  # 星星
+        "kirastone": cfg.init_kirastone,  # 羽毛石/宝石
+    }
+
 KEY_LIST = ["gold", "luckygold", "starstone", "kirastone"]
+KEYWORD_LIST = KEY_LIST + list(DEFAULT_ASSETS)
+KEYWORD_SET = set(KEYWORD_LIST)
 
 # 货币名称映射
 NAME_MAP = {
@@ -103,10 +109,10 @@ class _MoneyRepository:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_money (
                 uid INTEGER PRIMARY KEY,
-                gold INTEGER NOT NULL DEFAULT 3000,
-                luckygold INTEGER NOT NULL DEFAULT 0,
-                starstone INTEGER NOT NULL DEFAULT 12500,
-                kirastone INTEGER NOT NULL DEFAULT 0,
+                gold INTEGER NOT NULL,
+                luckygold INTEGER NOT NULL,
+                starstone INTEGER NOT NULL,
+                kirastone INTEGER NOT NULL,
                 last_login INTEGER NOT NULL DEFAULT 0,
                 rp INTEGER NOT NULL DEFAULT 0,
                 logindays INTEGER NOT NULL DEFAULT 0,
@@ -130,25 +136,14 @@ class _MoneyRepository:
         """确保用户记录存在，不存在则创建"""
         cursor.execute("SELECT uid FROM user_money WHERE uid = ?", (uid,))
         if cursor.fetchone() is None:
+            init = _init_assets() | DEFAULT_ASSETS
             cursor.execute(
                 """
                 INSERT INTO user_money
                 (uid, gold, luckygold, starstone, kirastone, last_login, rp, logindays, exgacha, goodluck, badluck)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (
-                    uid,
-                    DEFAULT_ASSETS["gold"],
-                    DEFAULT_ASSETS["luckygold"],
-                    DEFAULT_ASSETS["starstone"],
-                    DEFAULT_ASSETS["kirastone"],
-                    DEFAULT_ASSETS["last_login"],
-                    DEFAULT_ASSETS["rp"],
-                    DEFAULT_ASSETS["logindays"],
-                    DEFAULT_ASSETS["exgacha"],
-                    DEFAULT_ASSETS["goodluck"],
-                    DEFAULT_ASSETS["badluck"],
-                ),
+                (uid, *(init[key] for key in KEYWORD_LIST)),
             )
             return True
         return False

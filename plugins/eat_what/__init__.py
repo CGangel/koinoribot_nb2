@@ -14,6 +14,7 @@ from nonebot.params import CommandArg, Depends  # 用于依赖注入参数和 UI
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain  # 项目内部工具
 from ...su_manager import is_su_contributor     # 项目内部工具：判断是否为 0 级 SU
 from ...money import get_database_path          # 项目内部工具：获取统一数据库路径
+from ...uid_manager import is_uid_exists        # 项目内部工具：校验目标 UID 是否存在
 
 # ==========================================
 # 第二部分：注册这个插件在机器人中
@@ -71,11 +72,23 @@ def _get_conn():
 
 
 def _init_db():
-    """初始化数据表，如果基础表为空则插入默认食物"""
+    """初始化数据表；默认食物只在基础表首次建表时写入"""
     conn = sqlite3.connect(get_database_path())
     conn.row_factory = sqlite3.Row
     try:
         cursor = conn.cursor()
+        # 先探测基础表是否已存在：默认食物只随建表写入一次，
+        # 这样 SU 清空基础菜单后不会被重启"复活"
+        cursor.execute(
+            "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'eat_what_base'"
+        )
+        base_table_newly_created = cursor.fetchone()["count"] == 0
+        # 创建基础公共食物表：food_name 作为主键（与个性化菜单分开存储）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS eat_what_base (
+                food_name TEXT PRIMARY KEY
+            )
+        """)
         # 创建用户专属食物表：uid 和 food_name 组合作为主键，保证同一个用户不会重复添加同一种食物
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS eat_what_user (
@@ -84,15 +97,8 @@ def _init_db():
                 PRIMARY KEY (uid, food_name)
             )
         """)
-        # 创建公共基础食物表：food_name 作为主键
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS eat_what_base (
-                food_name TEXT PRIMARY KEY
-            )
-        """)
-        # 检查基础表是否为空，如果为空则插入默认食物
-        cursor.execute("SELECT COUNT(*) as count FROM eat_what_base")
-        if cursor.fetchone()["count"] == 0:
+        # 基础表是本次新建的才插入默认食物
+        if base_table_newly_created:
             cursor.executemany(
                 "INSERT OR IGNORE INTO eat_what_base (food_name) VALUES (?)",
                 [(food,) for food in DEFAULT_BASE_FOODS]
@@ -105,6 +111,14 @@ def _init_db():
 # 内存缓存：记录用户上次抽奖和疯狂星期四触发日期（重启后会重置，无需存数据库）
 _last_draw_cache = {}
 _last_thursday_cache = {}
+
+
+def _build_draw_pool(base_foods: list[str], user_foods: list[str], last_draw: str | None) -> list[str]:
+    """合并基础菜单与专属菜单构成抽奖池：去重（同名食物不重复加权），并临时剔除上次结果防连抽。"""
+    pool = list(dict.fromkeys(list(base_foods) + list(user_foods)))
+    if last_draw and last_draw in pool and len(pool) > 1:
+        pool.remove(last_draw)
+    return pool
 
 
 # ==========================================
@@ -145,28 +159,31 @@ async def handle_eat(uid: int = Depends(get_uid)):
                 _last_thursday_cache[str(uid)] = str(today)
                 trigger_thursday = True
             else:
-                # 合并公共菜单和用户专属菜单，组成本次抽奖池
-                draw_pool = list(base_foods) + list(user_foods)
-                last_draw = _last_draw_cache.get(str(uid))
+                # 合并公共菜单和用户专属菜单，组成本次抽奖池（含去重与防连抽剔除）
+                draw_pool = _build_draw_pool(base_foods, user_foods, _last_draw_cache.get(str(uid)))
 
-                # 防重复逻辑：如果本次抽奖池中包含了上次抽到的食物，且池子大于1个，临时将其剔除
-                if last_draw and last_draw in draw_pool and len(draw_pool) > 1:
-                    draw_pool.remove(last_draw)
-
-                # 兜底防护：如果剔完之后池子空了，就恢复全量池子，防止程序崩溃
-                if not draw_pool:
-                    draw_pool = list(base_foods) + list(user_foods)
-
-                # 随机抽取一个结果
-                result = secrets.choice(draw_pool)
-                # 记录本次抽到的结果，供下一次防重复使用
-                _last_draw_cache[str(uid)] = result
+                if draw_pool:
+                    # 随机抽取一个结果
+                    result = secrets.choice(draw_pool)
+                    # 记录本次抽到的结果，供下一次防重复使用
+                    _last_draw_cache[str(uid)] = result
+                else:
+                    # 兜底防护：基础菜单和专属菜单全为空时不能抽奖，置 None 交由锁外提示
+                    result = None
         finally:
             conn.close()
 
     # 注意：finish() 会抛出 FinishedException，必须放在锁外面执行，否则会导致死锁
     if trigger_thursday:
         await eat_cmd.finish("🍗 今天是星期四！V我50，带你吃疯狂星期四！")
+        return
+
+    # 菜单被清空时的兜底提示，避免对空池抽奖导致异常
+    if result is None:
+        await eat_cmd.finish(
+            "📭 当前抽奖池空空如也~ 管理员还没有设置基础菜单，"
+            "你可以发送“我以后想吃 <食物>”先添加自己的专属菜单哦！"
+        )
         return
 
     reply_text = f"🎲 天意说：今天吃 {result} 吧！"
@@ -198,6 +215,17 @@ def _parse_foods(text: str) -> list[str]:
     for sep in ("，", ",", "、", "；", ";", "|", " "):
         text = text.replace(sep, " ")
     return [item.strip() for item in text.split() if item.strip()]
+
+
+def _parse_uid_arg(text: str) -> int | None:
+    """辅助函数：解析管理员指令中的目标 UID，参数必须是单个整数，非法输入返回 None。"""
+    parts = text.split()
+    if len(parts) != 1:
+        return None
+    try:
+        return int(parts[0])
+    except ValueError:
+        return None
 
 
 @add_cmd.handle()
@@ -346,19 +374,27 @@ async def handle_help(bot: Bot, event: Event):
     """发送‘吃什么帮助’时，以合并转发形式展示纯文本指令指南。"""
     msg_list = [
         "📖 【吃什么插件使用指南】\n"
-        "━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━\n"
         "🔸 吃什么 / 今天吃什么\n"
         "  随机帮你决定今天吃什么\n\n"
         "🔸 我以后想吃 <食物名>\n"
         "  添加你个人专属的食物到抽奖池，最多5个字，普通用户上限20个。\n\n"
         "🔸 我以后不想吃 <食物名>\n"
         "  从你的专属抽奖池中删除指定食物\n\n"
-        "清空我的菜单/清空专属菜单\n"
-        "一键清空你个人的专属菜单（删除所有专属食物）\n\n"
+        "🔸 清空我的菜单 / 清空专属菜单\n"
+        "  一键清空你个人的专属菜单（删除所有专属食物）\n\n"
         "🔸 查看菜单 / 菜单\n"
         "  查看公共菜单和你的专属菜单\n\n"
         "🔸 吃什么帮助\n"
-        "  显示这条帮助信息\n"
+        "  显示这条帮助信息\n\n"
+        "━━━━━━━━━━━━\n"
+        "以下指令仅限 0 级 SU 使用：\n\n"
+        "🔸 修改公共菜单 <添加/删除> <食物名>\n"
+        "  增加或删除公共基础菜单\n\n"
+        "🔸 清空uid菜单 <uid>\n"
+        "  删除指定 UID 的整个个性化菜单\n\n"
+        "🔸 清空全部菜单 / 清空所有人菜单\n"
+        "  清空所有用户的个性化菜单\n"
     ]
 
     try:
@@ -417,7 +453,9 @@ async def handle_mod_base(args: Message = CommandArg(), uid: int = Depends(get_u
             conn.close()
 
     await mod_base_cmd.finish(reply_text)
-    # ---------- 4.7 用户指令：清空我的专属菜单 ----------
+
+
+# ---------- 4.7 用户指令：清空我的专属菜单 ----------
 clear_my_cmd = on_command("清空我的菜单", aliases={"清空专属菜单"}, priority=4, block=True)
 
 
@@ -473,3 +511,40 @@ async def handle_clear_all(uid: int = Depends(get_uid)):
             conn.close()
 
     await clear_all_cmd.finish(reply_text)
+
+
+# ---------- 4.9 管理员指令：清空指定 UID 的整个个性化菜单 ----------
+clear_uid_cmd = on_command("清空uid菜单", aliases={"删除uid菜单", "清空用户菜单"}, priority=4, block=True)
+
+
+@clear_uid_cmd.handle()
+async def handle_clear_uid(args: Message = CommandArg(), uid: int = Depends(get_uid)):
+    """仅限 level 0 的 SU 使用，删除指定 UID 的整个个性化菜单（不影响基础菜单）。"""
+    # 权限拦截：必须是 0 级 SU
+    if not is_su_contributor(uid):
+        await clear_uid_cmd.finish("⛔ 权限不足，仅限权限等级为 0 的 SU 使用。")
+
+    raw_text = args.extract_plain_text().strip()
+    target_uid = _parse_uid_arg(raw_text)
+    if target_uid is None:
+        await clear_uid_cmd.finish("📝 格式：清空uid菜单 <uid>\n例如：清空uid菜单 10001（对方可通过“查看uid”获取自己的 UID）")
+
+    # 校验目标 UID 确实存在，避免管理员打错数字误操作
+    if not is_uid_exists(target_uid):
+        await clear_uid_cmd.finish(f"❓ UID {target_uid} 不存在，请确认后重试~")
+
+    affected = 0
+    async with _io_lock:
+        conn = _get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM eat_what_user WHERE uid = ?", (target_uid,))
+            conn.commit()
+            affected = cursor.rowcount
+        finally:
+            conn.close()
+
+    if affected > 0:
+        await clear_uid_cmd.finish(f"✅ 已清空 UID {target_uid} 的整个专属菜单，共删除 {affected} 种食物。")
+    else:
+        await clear_uid_cmd.finish(f"❓ UID {target_uid} 的专属菜单本来就是空的哦~")

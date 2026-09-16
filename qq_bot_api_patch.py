@@ -490,11 +490,15 @@ def patch_qq_send_reply_quote() -> bool:
       自动降级为引用模式（附带 message_reference 定位回复对象）。正文
       中的 markdown 元字符未做转义——QQ 自定义 markdown 对不成对的
       ``*`` ``_`` 等按原文显示，若实测出现斜体/标题等样式串扰再补转义。
+    - 按钮回调回复（InteractionCreateEvent，见 qq_buttons）同样装饰：
+      群场景以点击者 group_member_openid 注入 @ 标签；交互事件无
+      REFIDX，引用装饰自然跳过，降级时直接原文发送。
     """
     from nonebot.adapters.qq import Bot as QQBot
     from nonebot.adapters.qq.event import (
         C2CMessageCreateEvent,
         GroupMessageCreateEvent,
+        InteractionCreateEvent,
     )
     from nonebot.adapters.qq.message import Message, MessageSegment
 
@@ -507,7 +511,10 @@ def patch_qq_send_reply_quote() -> bool:
     @functools.wraps(original_send)
     async def send(self, event, message, **kwargs):
         prepend = []
-        if isinstance(event, (GroupMessageCreateEvent, C2CMessageCreateEvent)):
+        if isinstance(
+            event,
+            (GroupMessageCreateEvent, C2CMessageCreateEvent, InteractionCreateEvent),
+        ):
             flags = _reply_flags()
             msg = Message(message)
             # 剥离消息开头为旧 @ 格式预留的换行（与 OneBot 分支保持一致）
@@ -520,10 +527,19 @@ def patch_qq_send_reply_quote() -> bool:
                     )
             # @回复者：仅群聊，markdown 载体（纯文本消息不解析标签，实测）
             at_degraded = False
-            if flags["at_sender"] and isinstance(event, GroupMessageCreateEvent):
-                member_openid = getattr(
-                    getattr(event, "author", None), "member_openid", None
-                )
+            if flags["at_sender"] and isinstance(
+                event, (GroupMessageCreateEvent, InteractionCreateEvent)
+            ):
+                if isinstance(event, InteractionCreateEvent):
+                    # 按钮回调：群场景点击者是 group_member_openid
+                    member_openid = (
+                        event.group_member_openid
+                        if event.group_openid else None
+                    )
+                else:
+                    member_openid = getattr(
+                        getattr(event, "author", None), "member_openid", None
+                    )
                 if member_openid:
                     tag = f'<qqbot-at-user id="{member_openid}" />'
                     if msg["markdown"]:

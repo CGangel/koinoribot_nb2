@@ -269,7 +269,8 @@ async def _send_forward_nodes_individually(
 async def send_group_forward_msg(
     event: Event, 
     bot: Bot, 
-    messages
+    messages,
+    width: int = 600,
 ) -> None:
     """
     发送合并转发消息
@@ -278,6 +279,7 @@ async def send_group_forward_msg(
         event: 事件对象
         bot: Bot 对象
         messages: 合并转发消息节点列表（onebot.Message 或 List[MessageSegment]）
+        width: 转为长图时的画布宽度（默认 600；双列排版可放宽）
     
     Note:
         QQ-Bot 不支持合并转发，会降级为普通消息依次发送
@@ -288,13 +290,20 @@ async def send_group_forward_msg(
 
     compatible_nodes = _normalize_forward_nodes(messages)
     try:
-        image_bytes = await _nodes_to_image(compatible_nodes)
+        image_bytes = await _nodes_to_image(compatible_nodes, width=width)
         if image_bytes:
             await bot.send(event, qq.MessageSegment.file_image(image_bytes))
             return
     except Exception as error:
         logger.error(f"合并转发转图片失败: {error}")
     await _send_forward_nodes_individually(event, bot, compatible_nodes)
+
+
+async def text_to_forward_image(text: str, width: int = 600) -> bytes:
+    """长文本 → 伪造合并转发风格长图（与 send_group_forward_msg 的官Bot
+    分支同款渲染）。按钮回调等拿不到 matcher 的事件场景直接复用；
+    渲染失败返回 b""，由调用方决定是否降级纯文本。"""
+    return await _nodes_to_image([{"data": {"content": text}}], width=width)
 
 
 async def build_forward_node(
@@ -441,6 +450,31 @@ def _measure_text_width(image: BuildImage, text: str) -> float:
         return image.font.getsize(text)[0]
 
 
+def _draw_column_line(
+    image: BuildImage,
+    text: str,
+    x: int,
+    max_px: int,
+    current_y: int,
+    font_size: int,
+    line_spacing: int,
+) -> int:
+    """在指定 x 起绘制一段单列文本（超宽自动换行），返回绘制后的 y"""
+    line = ""
+    for ch in text:
+        test = line + ch
+        if _measure_text_width(image, test) > max_px and line:
+            image.text((x, current_y), line, fill=(0, 0, 0))
+            current_y += font_size + line_spacing
+            line = ch
+        else:
+            line = test
+    if line:
+        image.text((x, current_y), line, fill=(0, 0, 0))
+        current_y += font_size + line_spacing
+    return current_y
+
+
 def _draw_wrapped_text(
     image: BuildImage,
     text: str,
@@ -454,6 +488,31 @@ def _draw_wrapped_text(
     for original_line in text.split('\n'):
         if not original_line:
             current_y += font_size + line_spacing
+            continue
+
+        # 制表符分列（如鱼类图鉴双栏）：右列固定起始于画布中线，
+        # 像素级对齐——纯文本空格补位在非等宽字体下无法对齐
+        if '\t' in original_line:
+            left, right = original_line.split('\t', 1)
+            col_x = padding + max_width // 2
+            if left:
+                y_left = _draw_column_line(
+                    image, left, padding, max_width // 2,
+                    current_y, font_size, line_spacing,
+                )
+            else:
+                y_left = current_y
+            if right:
+                y_right = _draw_column_line(
+                    image, right, col_x, width - col_x - padding,
+                    current_y, font_size, line_spacing,
+                )
+            else:
+                y_right = current_y
+            if not left and not right:
+                current_y += font_size + line_spacing
+            else:
+                current_y = max(y_left, y_right)
             continue
 
         current_line = ""
@@ -481,7 +540,6 @@ def _draw_wrapped_text(
             )
             current_y += font_size + line_spacing
     return current_y
-
 
 async def _node_image_data(segment_data: dict) -> bytes | None:
     file_uri = segment_data.get('file', '')
@@ -602,10 +660,9 @@ async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: 
         img.crop((0, 0, width, current_y + padding))
     return img
 
-async def _nodes_to_image(messages: List[Dict[str, Any]]) -> bytes:
-    """将消息链转换为长图"""
+async def _nodes_to_image(messages: List[Dict[str, Any]], width: int = 600) -> bytes:
+    """将消息链转换为长图（width 为画布宽度，双列排版可放宽）"""
     images = []
-    width = 600
     
     for node in messages:
         try:

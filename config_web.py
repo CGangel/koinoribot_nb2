@@ -1,7 +1,10 @@
 """配置面板（挂载于驱动端口的 /config 路径）与“冰祈配置”指令。
 
-- 面板列出 config 表全部配置项（按分区分组），修改保存时走
-  config_store.update_config：校验 → 写库 → 原地更新内存。
+- 面板列出 config 表全部配置项：不同模块在各自的分区子页展示
+  （左侧导航切换）；集合类配置（嵌套 dict 或条目超过 12 项，如鱼
+  品种表、商店商品表）提供二级编辑子页，可逐条增删改。
+- 修改保存时走 config_store.update_config：校验 → 写库 → 原地更新内存。
+  未保存的修改保存在页面草稿中，切换子页不丢失。
 - 密码取自 passwd.py 的 PANEL_PASSWORD；未配置时拒绝一切登录。
 - 防爆破：同一 IP 在 10 分钟窗口内密码错 5 次即锁定 15 分钟；
   会话 cookie 有效期 12 小时，仅保存在内存（重启后需重新登录）。
@@ -59,7 +62,7 @@ def _new_session() -> str:
     return token
 
 
-def _valid_session(request: web.Request) -> bool:
+def _valid_session(request: Request) -> bool:
     token = request.cookies.get(SESSION_COOKIE, "")
     expiry = _sessions.get(token)
     return bool(token and expiry and expiry > time.time())
@@ -73,7 +76,7 @@ def _is_locked(ip: str) -> bool:
     return False
 
 
-def _register_failure(ip: str) -> Optional[int]:
+def _register_failure(ip: str) -> int | None:
     """记录一次密码错误。返回剩余尝试次数；达到阈值时当场锁定并返回 None。"""
     now = time.time()
     fails = [t for t in _fail_counts.get(ip, []) if now - t < FAIL_WINDOW]
@@ -236,11 +239,7 @@ def mount_config_web() -> bool:
 
 
 def panel_base_url() -> str:
-    host = (
-        koinori_config.ip_address
-        if koinori_config.public_bot and koinori_config.ip_address
-        else "127.0.0.1"
-    )
+    host = koinori_config.ip_address or "127.0.0.1"
     port = nonebot.get_driver().config.port or 8080
     return f"http://{host}:{port}/config/"
 
@@ -286,6 +285,9 @@ async def handle_panel_command(
 
 
 # ================== 面板页面 ==================
+# 结构：登录页 → 左侧分区导航（一级子页：每个模块一页）→ 集合类配置
+# （嵌套 dict / 超过 12 条）再进二级子页逐条编辑。未保存修改存草稿，
+# 切页不丢，保存/重置时清空。
 
 _PAGE_HTML = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -321,22 +323,33 @@ _PAGE_HTML = """<!DOCTYPE html>
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.sec { background: var(--chip); color: var(--ink); }
 
-  #wrap { max-width: 860px; padding: 0 12px 90px; }
+  #wrap { max-width: 1080px; padding: 0 12px 90px; }
   .topbar { position: sticky; top: 10px; z-index: 20; display: flex; gap: 10px;
             align-items: center; flex-wrap: wrap; padding: 12px 18px; }
   .topbar h1 { font-size: 16px; margin: 0; flex: 1; }
   .topbar h1 .tag { font-size: 11px; color: var(--sub); font-weight: normal; margin-left: 8px; }
   #msg { font-size: 12px; color: var(--warn); word-break: break-all; }
 
-  .section h2 { font-size: 13px; color: var(--sub); font-weight: 600; letter-spacing: .5px;
-                margin: 4px 2px 10px; }
+  #layout { display: flex; gap: 14px; align-items: flex-start; }
+  #nav { width: 200px; flex: none; position: sticky; top: 74px; padding: 10px; }
+  .navitem { padding: 8px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+             color: var(--sub); margin: 2px 0; }
+  .navitem:hover { background: var(--chip); }
+  .navitem.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  #main { flex: 1; min-width: 0; }
+  #main .card { margin-top: 16px; }
+
+  .section h2, .fieldpage h2 { font-size: 13px; color: var(--sub); font-weight: 600;
+                               letter-spacing: .5px; margin: 4px 2px 10px; }
   .field { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0;
            transition: border-color .15s, box-shadow .15s; }
   .field.changed { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,125,221,.14); }
   .field .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 7px; }
-  .field .name { font-family: ui-monospace, Consolas, monospace; font-size: 13px; font-weight: 600; }
+  .field .head .name { font-family: ui-monospace, Consolas, monospace; font-size: 13px; font-weight: 600; flex: 1; }
   .chip { font-size: 10px; color: var(--sub); background: var(--chip); border-radius: 5px; padding: 1px 7px; }
   .chip.secret { color: var(--warn); background: #fdeeea; }
+  .openbtn { padding: 5px 14px; background: var(--chip); color: var(--accent); font-weight: 600; flex: none; }
+  .openbtn:hover { background: #e3ecfb; }
   .field .desc { font-size: 11.5px; color: var(--sub); margin-top: 3px; line-height: 1.5; }
 
   input[type=text], input[type=number] { padding: 8px 10px; border: 1px solid var(--line);
@@ -370,15 +383,35 @@ _PAGE_HTML = """<!DOCTYPE html>
   .add:hover { background: #e3ecfb; }
   .empty-tip { font-size: 12px; color: var(--sub); padding: 4px 2px; }
 
+  /* 二级子页：集合配置逐条编辑 */
+  .backbtn { padding: 6px 16px; background: var(--chip); color: var(--ink); margin-bottom: 10px; }
+  .entry { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+  .entry.changed { border-color: var(--accent); }
+  .ehead { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .ehead input { font-weight: 600; }
+  .frow { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; margin: 6px 0; }
+  .frow label { font-size: 12px; color: var(--sub); font-family: ui-monospace, Consolas, monospace;
+                text-align: right; overflow: hidden; text-overflow: ellipsis; }
+  .nblock { border-left: 2px solid var(--line); padding-left: 10px; margin: 6px 0 6px 150px; }
+  .nblock > label { display: block; font-size: 12px; color: var(--sub);
+                    font-family: ui-monospace, Consolas, monospace; margin: 4px 0; }
+  .kvrow { display: grid; grid-template-columns: 1fr 1fr 28px; gap: 6px; align-items: center; margin: 5px 0; }
+
   .savebar { position: fixed; left: 12px; right: 12px; bottom: 0; z-index: 30;
              display: flex; align-items: center; gap: 12px; padding: 12px 18px;
              border-radius: var(--radius) var(--radius) 0 0; }
   .savebar .count { font-size: 13px; color: var(--sub); flex: 1; }
   .savebar .count b { color: var(--accent); font-size: 16px; margin: 0 3px; }
   .locked { display: none; }
-  @media (max-width: 640px) {
+  @media (max-width: 760px) {
+    #layout { display: block; }
+    #nav { width: auto; position: static; display: flex; flex-wrap: wrap; gap: 4px; }
+    .navitem { margin: 0; }
     .kv .row { grid-template-columns: 1fr 1fr; }
     .kv .arrow { display: none; }
+    .frow { grid-template-columns: 1fr; }
+    .frow label { text-align: left; }
+    .nblock { margin-left: 0; }
   }
 </style>
 </head>
@@ -398,12 +431,15 @@ _PAGE_HTML = """<!DOCTYPE html>
 
 <div id="wrap" class="locked">
   <div class="topbar card">
-    <h1>Koinoribot 配置面板<span class="tag">修改保存后立即生效（写入数据库并同步内存）</span></h1>
+    <h1>Koinoribot 配置面板<span class="tag">分区子页 · 修改保存后立即生效（写入数据库并同步内存）</span></h1>
     <button class="btn sec" id="revealBtn" onclick="toggleSecret()">显示敏感值</button>
     <button class="btn sec" onclick="load()">重置</button>
     <button class="btn sec" onclick="logout()">退出</button>
   </div>
-  <div id="sections"></div>
+  <div id="layout">
+    <nav id="nav" class="card"></nav>
+    <div id="main"></div>
+  </div>
   <div id="msg2" class="card locked" style="padding:10px 18px"></div>
 </div>
 
@@ -416,7 +452,14 @@ _PAGE_HTML = """<!DOCTYPE html>
 <script>
 let data = {sections: {}};
 let revealed = false;
-let fieldMeta = {};   // key -> field（类型/原始值/打码标记）
+let fieldMeta = {};          // key -> field（类型/原始值/打码标记/集合标记）
+let view = {section: null, field: null};   // 一级分区子页 / 二级集合子页
+let draft = {};              // key -> 草稿值（未保存修改，切页保留）
+// 钓鱼商店表：已有商品的名称与条目 id 不可修改（后端 update_config 也会强制保留名称）
+const SHOP_NAME_LOCKED_FIELDS = new Set([
+  'fish_shop_rods', 'fish_shop_lines', 'fish_shop_baits',
+]);
+
 const byId = k => document.getElementById('f_' + k);
 
 function show(on) {
@@ -426,11 +469,11 @@ function show(on) {
 }
 
 function flash(msg, isErr) {
-  const el = document.getElementById('msg2');
-  el.classList.remove('locked');
-  el.style.color = isErr ? 'var(--warn)' : 'var(--ok)';
-  el.textContent = msg;
-  setTimeout(() => el.classList.add('locked'), 5000);
+  const el2 = document.getElementById('msg2');
+  el2.classList.remove('locked');
+  el2.style.color = isErr ? 'var(--warn)' : 'var(--ok)';
+  el2.textContent = msg;
+  setTimeout(() => el2.classList.add('locked'), 5000);
 }
 
 async function login() {
@@ -443,8 +486,8 @@ async function login() {
 }
 
 document.getElementById('pwdEye').onclick = () => {
-  const el = document.getElementById('pwd');
-  el.type = el.type === 'password' ? 'text' : 'password';
+  const el2 = document.getElementById('pwd');
+  el2.type = el2.type === 'password' ? 'text' : 'password';
 };
 document.getElementById('pwd').addEventListener('keydown', e => {
   if (e.key === 'Enter') login();
@@ -460,6 +503,9 @@ async function load(reveal) {
   revealed = reveal;
   fieldMeta = {};
   for (const fields of Object.values(data.sections)) for (const f of fields) fieldMeta[f.key] = f;
+  draft = {};
+  if (!view.section || !(view.section in data.sections)) view.section = Object.keys(data.sections)[0] || null;
+  if (view.field && !fieldMeta[view.field]) view.field = null;
   document.getElementById('revealBtn').textContent = revealed ? '隐藏敏感值' : '显示敏感值';
   render();
   show(true);
@@ -478,16 +524,32 @@ function numberTypeOf(items) {
   return items.length && items.every(x => typeof x === 'number') ? 'number' : 'string';
 }
 
+function currentOf(f) { return (f.key in draft) ? draft[f.key] : f.value; }
+
 function render() {
-  const root = document.getElementById('sections');
-  root.innerHTML = '';
-  for (const [section, fields] of Object.entries(data.sections)) {
-    const card = el('div', 'card section');
-    card.appendChild(el('h2', null, section));
-    for (const f of fields) card.appendChild(renderField(f));
-    root.appendChild(card);
-  }
+  renderNavList();
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  if (view.field && fieldMeta[view.field]) main.appendChild(renderFieldPage(fieldMeta[view.field]));
+  else if (view.section) main.appendChild(renderSectionPage(view.section));
   refreshDirty();
+}
+
+function renderNavList() {
+  const nav = document.getElementById('nav');
+  nav.innerHTML = '';
+  for (const name of Object.keys(data.sections)) {
+    const item = el('div', 'navitem' + (name === view.section && !view.field ? ' on' : ''), name);
+    item.onclick = () => { view = {section: name, field: null}; render(); };
+    nav.appendChild(item);
+  }
+}
+
+function renderSectionPage(section) {
+  const card = el('div', 'card section');
+  card.appendChild(el('h2', null, section));
+  for (const f of data.sections[section]) card.appendChild(renderField(f));
+  return card;
 }
 
 function renderField(f) {
@@ -496,15 +558,24 @@ function renderField(f) {
 
   const head = el('div', 'head');
   head.appendChild(el('span', 'name', f.key));
-  head.appendChild(el('span', 'chip' + (f.masked ? ' secret' : ''),
-                      f.type + (f.masked ? ' · 已打码' : '')));
+  if (f.collection) {
+    head.appendChild(el('span', 'chip', `${f.type} · ${f.entry_count} 项`));
+    const open = el('button', 'openbtn', '打开编辑 ▸');
+    open.onclick = () => { view.field = f.key; render(); };
+    head.appendChild(open);
+  } else {
+    head.appendChild(el('span', 'chip' + (f.masked ? ' secret' : ''),
+                        f.type + (f.masked ? ' · 已打码' : '')));
+  }
   box.appendChild(head);
   if (f.desc) box.appendChild(el('div', 'desc', f.desc));
 
-  if (f.type === 'bool') box.appendChild(renderBool(f));
-  else if (f.type === 'list') box.appendChild(renderList(f));
-  else if (f.type === 'dict') box.appendChild(renderDict(f));
-  else box.appendChild(renderScalar(f));
+  if (!f.collection) {
+    if (f.type === 'bool') box.appendChild(renderBool(f));
+    else if (f.type === 'list') box.appendChild(renderList(f));
+    else if (f.type === 'dict') box.appendChild(renderDict(f));
+    else box.appendChild(renderScalar(f));
+  }
   return box;
 }
 
@@ -512,13 +583,15 @@ function renderBool(f) {
   const row = el('div', 'boolrow');
   const sw = el('label', 'switch');
   const input = document.createElement('input');
-  input.type = 'checkbox'; input.id = 'f_' + f.key; input.checked = !!f.value;
+  input.type = 'checkbox'; input.id = 'f_' + f.key; input.checked = !!currentOf(f);
   const track = el('span', 'track');
   sw.append(input, track);
-  const state = el('span', 'state' + (f.value ? ' on' : ''), f.value ? '已开启' : '已关闭');
+  const state = el('span', 'state' + (currentOf(f) ? ' on' : ''),
+                   currentOf(f) ? '已开启' : '已关闭');
   input.addEventListener('change', () => {
     state.textContent = input.checked ? '已开启' : '已关闭';
     state.classList.toggle('on', input.checked);
+    draft[f.key] = input.checked;
     refreshDirty();
   });
   row.append(sw, state);
@@ -532,15 +605,20 @@ function renderScalar(f) {
   if (f.type === 'float') input.step = 'any';
   if (f.type === 'int') input.step = '1';
   if (f.masked) { input.placeholder = f.value; input.value = ''; }
-  else input.value = String(f.value);
-  input.addEventListener('input', refreshDirty);
+  else input.value = String(currentOf(f));
+  input.addEventListener('input', () => {
+    if (f.masked && f.type === 'str') { if (input.value !== '') draft[f.key] = input.value; }
+    else draft[f.key] = coerce(input.value, f.type === 'int' ? 'number' : (f.type === 'float' ? 'number' : 'string'));
+    refreshDirty();
+  });
   return input;
 }
 
 function renderList(f) {
   const wrap = el('div', 'items');
   wrap.id = 'f_' + f.key;
-  const defType = numberTypeOf(f.value || []);
+  const current = Array.isArray(currentOf(f)) ? currentOf(f) : [];
+  const defType = numberTypeOf(current);
 
   function addRow(value, etype) {
     const row = el('div', 'row');
@@ -549,22 +627,27 @@ function renderList(f) {
     input.dataset.etype = etype;
     if (value !== undefined) input.value = String(value);
     const del = el('button', 'del', '✕');
-    del.onclick = () => { row.remove(); refreshDirty(); };
+    del.onclick = () => { row.remove(); syncList(); };
     row.append(input, del);
     wrap.appendChild(row);
-    input.addEventListener('input', refreshDirty);
+    input.addEventListener('input', syncList);
     return input;
   }
 
-  const items = Array.isArray(f.value) ? f.value : [];
-  if (!items.length) wrap.appendChild(el('div', 'empty-tip', '（空列表）'));
-  items.forEach(v => addRow(v, typeof v === 'number' ? 'number' : 'string'));
+  function syncList() {
+    draft[f.key] = Array.from(wrap.querySelectorAll('.row input')).map(
+      input => coerce(input.value, input.dataset.etype));
+    refreshDirty();
+  }
+
+  if (!current.length) wrap.appendChild(el('div', 'empty-tip', '（空列表）'));
+  current.forEach(v => addRow(v, typeof v === 'number' ? 'number' : 'string'));
   const add = el('button', 'add', '+ 添加一项');
   add.onclick = () => {
     const tip = wrap.querySelector('.empty-tip');
     if (tip) tip.remove();
     addRow(undefined, defType).focus();
-    refreshDirty();
+    syncList();
   };
   wrap.appendChild(add);
   return wrap;
@@ -573,7 +656,9 @@ function renderList(f) {
 function renderDict(f) {
   const wrap = el('div', 'kv');
   wrap.id = 'f_' + f.key;
-  const entries = f.value && typeof f.value === 'object' ? Object.entries(f.value) : [];
+  const current = currentOf(f);
+  const entries = current && typeof current === 'object' && !Array.isArray(current)
+    ? Object.entries(current) : [];
   const defType = numberTypeOf(entries.map(e => e[1]));
 
   function addRow(k, v, etype) {
@@ -586,11 +671,23 @@ function renderDict(f) {
     if (k !== undefined) keyIn.value = String(k);
     if (v !== undefined && v !== '') valIn.value = String(v);
     const del = el('button', 'del', '✕');
-    del.onclick = () => { row.remove(); refreshDirty(); };
+    del.onclick = () => { row.remove(); syncDict(); };
     row.append(keyIn, el('span', 'arrow', '→'), valIn, del);
     wrap.appendChild(row);
-    keyIn.addEventListener('input', refreshDirty);
-    valIn.addEventListener('input', refreshDirty);
+    keyIn.addEventListener('input', syncDict);
+    valIn.addEventListener('input', syncDict);
+  }
+
+  function syncDict() {
+    const obj = {};
+    wrap.querySelectorAll('.row').forEach(row => {
+      const k = row.querySelector('[data-role=k]').value.trim();
+      if (!k) return;
+      const vIn = row.querySelector('[data-role=v]');
+      obj[k] = coerce(vIn.value, vIn.dataset.etype);
+    });
+    draft[f.key] = obj;
+    refreshDirty();
   }
 
   if (!entries.length) wrap.appendChild(el('div', 'empty-tip', '（空）'));
@@ -602,42 +699,176 @@ function renderDict(f) {
     addRow(undefined, undefined, defType);
     const rows = wrap.querySelectorAll('.row');
     if (rows.length) rows[rows.length - 1].querySelector('[data-role=k]').focus();
-    refreshDirty();
+    syncDict();
   };
   wrap.appendChild(add);
   return wrap;
+}
+
+// ================== 集合配置二级子页 ==================
+
+function entryTemplate(entriesObj) {
+  // 新增条目的字段模板：取现有条目子字段的并集
+  const tpl = {};
+  for (const v of Object.values(entriesObj)) {
+    if (typeof v !== 'object' || v === null) continue;
+    for (const [sk, sv] of Object.entries(v)) {
+      if (sk in tpl) continue;
+      tpl[sk] = (typeof sv === 'object' && sv !== null) ? {}
+             : (typeof sv === 'number' ? 0 : '');
+    }
+  }
+  return tpl;
+}
+
+function renderFieldPage(f) {
+  const page = el('div', 'card fieldpage');
+  const back = el('button', 'backbtn', '← 返回「' + view.section + '」');
+  back.onclick = () => { view.field = null; render(); };
+  page.appendChild(back);
+
+  const head = el('div', 'head');
+  head.appendChild(el('span', 'name', f.key));
+  head.appendChild(el('span', 'chip', `${f.type} · ${f.entry_count} 项`));
+  page.appendChild(head);
+  if (f.desc) page.appendChild(el('div', 'desc', f.desc));
+
+  const entriesBox = el('div');
+  entriesBox.id = 'f_' + f.key;
+  page.appendChild(entriesBox);
+
+  const current = currentOf(f);
+  const entries = current && typeof current === 'object' && !Array.isArray(current)
+    ? current : {};
+
+  function syncEntries() {
+    const out = {};
+    entriesBox.querySelectorAll(':scope > .entry').forEach(entry => {
+      const k = entry.querySelector('[data-role=ek]').value.trim();
+      if (!k) return;
+      const obj = {};
+      entry.querySelectorAll(':scope > .ebody > .frow').forEach(row => {
+        const input = row.querySelector('input');
+        obj[row.dataset.sk] = coerce(input.value, input.dataset.etype);
+      });
+      entry.querySelectorAll(':scope > .ebody > .nblock').forEach(block => {
+        const sub = {};
+        block.querySelectorAll('.kvrow').forEach(r => {
+          const nk = r.querySelector('[data-role=nk]').value.trim();
+          if (!nk) return;
+          const nv = r.querySelector('[data-role=nv]');
+          sub[nk] = coerce(nv.value, nv.dataset.etype);
+        });
+        obj[block.dataset.sk] = sub;
+      });
+      out[k] = obj;
+    });
+    draft[f.key] = out;
+    refreshDirty();
+  }
+
+  function addScalarRow(body, sk, sv, locked) {
+    const row = el('div', 'frow');
+    row.dataset.sk = sk;
+    row.appendChild(el('label', null, locked ? sk + '（锁定）' : sk));
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.dataset.etype = typeof sv === 'number' ? 'number' : 'string';
+    input.value = sv === undefined || sv === null ? '' : String(sv);
+    if (locked) {
+      input.disabled = true;
+      input.title = '名称不可修改：只能修改属性与价格（新增商品可填新名称）';
+    }
+    input.addEventListener('input', syncEntries);
+    row.appendChild(input);
+    body.appendChild(row);
+  }
+
+  function addNestedBlock(body, sk, sv) {
+    const block = el('div', 'nblock');
+    block.dataset.sk = sk;
+    block.appendChild(el('label', null, sk));
+    const sub = (typeof sv === 'object' && sv !== null) ? sv : {};
+
+    function addKvRow(nk, nv) {
+      const row = el('div', 'kvrow');
+      const nkIn = document.createElement('input');
+      nkIn.type = 'text'; nkIn.dataset.role = 'nk'; nkIn.placeholder = '属性名';
+      if (nk !== undefined) nkIn.value = String(nk);
+      const nvIn = document.createElement('input');
+      nvIn.type = 'text'; nvIn.dataset.role = 'nv';
+      nvIn.dataset.etype = typeof nv === 'number' ? 'number' : 'string';
+      nvIn.placeholder = '值';
+      if (nv !== undefined && nv !== null) nvIn.value = String(nv);
+      const del = el('button', 'del', '✕');
+      del.onclick = () => { row.remove(); syncEntries(); };
+      row.append(nkIn, nvIn, del);
+      block.appendChild(row);
+      nkIn.addEventListener('input', syncEntries);
+      nvIn.addEventListener('input', syncEntries);
+    }
+
+    Object.entries(sub).forEach(([nk, nv]) => addKvRow(nk, nv));
+    const add = el('button', 'add', '+ 添加属性');
+    add.onclick = () => { addKvRow(undefined, undefined); syncEntries(); };
+    block.appendChild(add);
+    body.appendChild(block);
+  }
+
+  function addEntryCard(key, val) {
+    const nameLocked = SHOP_NAME_LOCKED_FIELDS.has(f.key);
+    const card = el('div', 'entry');
+    const headRow = el('div', 'ehead');
+    const keyIn = document.createElement('input');
+    keyIn.type = 'text'; keyIn.dataset.role = 'ek'; keyIn.placeholder = '条目 id';
+    if (key !== undefined) keyIn.value = String(key);
+    if (nameLocked && key !== undefined) {
+      // 已有商品：条目 id 同名称一并锁定（改 id 等于换商品）
+      keyIn.disabled = true;
+      keyIn.title = '已有商品的 id 不可修改';
+    }
+    const del = el('button', 'del', '✕');
+    del.onclick = () => { card.remove(); syncEntries(); };
+    headRow.append(keyIn, del);
+    card.appendChild(headRow);
+
+    const body = el('div', 'ebody');
+    const entryVal = (typeof val === 'object' && val !== null) ? val : {};
+    for (const [sk, sv] of Object.entries(entryVal)) {
+      if (typeof sv === 'object' && sv !== null) addNestedBlock(body, sk, sv);
+      else addScalarRow(body, sk, sv, nameLocked && sk === 'name');
+    }
+    card.appendChild(body);
+    entriesBox.appendChild(card);
+    keyIn.addEventListener('input', syncEntries);
+  }
+
+  if (!Object.keys(entries).length) {
+    entriesBox.appendChild(el('div', 'empty-tip', '（空）点击下方按钮添加条目'));
+  }
+  for (const [k, v] of Object.entries(entries)) addEntryCard(k, v);
+
+  const add = el('button', 'add', '+ 添加条目');
+  add.onclick = () => {
+    const tip = entriesBox.querySelector('.empty-tip');
+    if (tip) tip.remove();
+    addEntryCard(undefined, entryTemplate(entries));
+    syncEntries();
+    const cards = entriesBox.querySelectorAll('.entry');
+    if (cards.length) cards[cards.length - 1].querySelector('[data-role=ek]').focus();
+  };
+  page.appendChild(add);
+  return page;
 }
 
 // ================== 采集与保存 ==================
 
 function coerce(text, etype) { return etype === 'number' ? Number(text) : text; }
 
-function collect(f) {
-  if (f.type === 'bool') return byId(f.key).checked;
-  if (f.type === 'list') {
-    return Array.from(byId(f.key).querySelectorAll('.row input')).map(
-      input => coerce(input.value, input.dataset.etype));
-  }
-  if (f.type === 'dict') {
-    const obj = {};
-    byId(f.key).querySelectorAll('.row').forEach(row => {
-      const k = row.querySelector('[data-role=k]').value.trim();
-      if (!k) return;
-      const vIn = row.querySelector('[data-role=v]');
-      obj[k] = coerce(vIn.value, vIn.dataset.etype);
-    });
-    return obj;
-  }
-  const input = byId(f.key);
-  if (f.type === 'int') return parseInt(input.value, 10);
-  if (f.type === 'float') return parseFloat(input.value);
-  return input.value;
-}
-
 function isChanged(f) {
-  // 打码字符串：占位符即打码值，输入框留空表示未修改
-  if (f.masked && f.type === 'str') return byId(f.key).value !== '';
-  return JSON.stringify(collect(f)) !== JSON.stringify(f.value);
+  // 打码字符串：占位符即打码值，草稿非空才算修改
+  if (f.masked && f.type === 'str') return f.key in draft && draft[f.key] !== '';
+  return JSON.stringify(currentOf(f)) !== JSON.stringify(f.value);
 }
 
 function changedKeys() {
@@ -658,10 +889,7 @@ function refreshDirty() {
 
 async function save() {
   const updates = {};
-  for (const f of Object.values(fieldMeta)) {
-    if (!isChanged(f)) continue;
-    updates[f.key] = collect(f);
-  }
+  for (const key of changedKeys()) updates[key] = draft[key];
   if (!Object.keys(updates).length) { flash('没有修改'); return; }
   const r = await fetch('api/config', {method: 'POST',
     headers: {'Content-Type': 'application/json'},

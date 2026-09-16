@@ -33,7 +33,7 @@ from .pet import (
     get_pet_data, get_status_description, update_pet_status, check_pet_evolution
 )
 from ...su_manager import is_su
-from ..fishing.util import DatabaseManager
+from ...fish_limit import FishLimitManager
 from ...nickname import get_user_nickname
 from ...su_manager import get_excluded_su_uids
 from ..feisheng.data import get_all_pet_feisheng_status
@@ -763,7 +763,7 @@ async def _apply_pet_skill(skill_name: str, pet: dict, uid: int) -> str:
         money.gold += amount
         return f"\n{pet_name}外出玩耍时捡到了一个钱包，里面有{amount}金币。"
     if skill_name == "幸运星":
-        amount = random.randint(5, 7)
+        amount = random.randint(3, 6)
         money.luckygold += amount
         return f"\n{pet_name}外出玩耍时偶遇音祈，由于可爱的外表，深受对方喜爱，获得了上帝的祝福。幸运币+{amount}。"
     if skill_name == "卖萌":
@@ -792,9 +792,9 @@ async def _apply_pet_skill(skill_name: str, pet: dict, uid: int) -> str:
             f"通过自我情绪管理，她恢复{energy_gain}精力和{happiness_gain}好感。"
         )
     if skill_name == "捕鱼达人":
-        species_buff = 2 if "猫" in pet["type"] else 1
-        add_count = random.randint(1, 5) * 100 * (3 ** pet["stage"]) * species_buff
-        DatabaseManager.check_and_update_fish_limit(uid, -add_count)
+        species_buff = 3 if "猫" in pet["type"] else 1
+        add_count = 3 ** pet["stage"] + species_buff
+        FishLimitManager.check_and_update_fish_limit(uid, -add_count)
         return f"\n{pet_name}在捕鱼大赛中名列前茅，赢得了鱼塘的特邀入场券。今日钓鱼次数+{add_count}。"
     return f"【{skill_name}】是未知技能，无法发动。"
 

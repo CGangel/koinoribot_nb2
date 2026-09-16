@@ -1,0 +1,357 @@
+{
+  "canvas": {
+    "w": 820,
+    "h": 480
+  },
+  "scale": 2,
+  "font": "HYWenHei-85W.ttf",
+  "art_box": [
+    40,
+    182,
+    160,
+    102
+  ],
+  "default_theme": "传说",
+  "labels": {
+    "card_tag": {
+      "x": 26,
+      "y": 42,
+      "size": 12,
+      "color": "",
+      "text": "钓 鱼 收 获",
+      "field": null,
+      "anchor": "lm"
+    },
+    "info_hdr": {
+      "x": 248,
+      "y": 144,
+      "size": 12,
+      "color": "#9A7A5C",
+      "text": "鱼 的 信 息",
+      "field": null,
+      "anchor": "lm"
+    },
+    "gear_hdr": {
+      "x": 408,
+      "y": 144,
+      "size": 12,
+      "color": "#9A7A5C",
+      "text": "当 前 装 备",
+      "field": null,
+      "anchor": "lm"
+    },
+    "opt_hdr": {
+      "x": 668,
+      "y": 144,
+      "size": 12,
+      "color": "#9A7A5C",
+      "text": "请 选 择",
+      "field": null,
+      "anchor": "lm"
+    },
+    "lb_rarity": {
+      "x": 260,
+      "y": 183,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "稀有度",
+      "field": "rarity",
+      "anchor": "lm"
+    },
+    "lb_grade": {
+      "x": 260,
+      "y": 239,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "等级",
+      "field": "grade",
+      "anchor": "lm"
+    },
+    "lb_price": {
+      "x": 260,
+      "y": 295,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "售价",
+      "field": "price",
+      "anchor": "lm"
+    },
+    "lb_lucky": {
+      "x": 260,
+      "y": 351,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "幸运值",
+      "field": "lucky",
+      "anchor": "lm"
+    },
+    "lb_grown": {
+      "x": 260,
+      "y": 410,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "可成长至",
+      "field": "grown_len",
+      "anchor": "lm"
+    },
+    "lb_rod": {
+      "x": 422,
+      "y": 204,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "鱼竿",
+      "field": "gear_rod",
+      "anchor": "lm"
+    },
+    "lb_line": {
+      "x": 422,
+      "y": 276,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "鱼线",
+      "field": "gear_line",
+      "anchor": "lm"
+    },
+    "lb_bait": {
+      "x": 422,
+      "y": 348,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "鱼饵",
+      "field": "gear_bait",
+      "anchor": "lm"
+    },
+    "lb_orb": {
+      "x": 422,
+      "y": 420,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "宝珠",
+      "field": "gear_orb",
+      "anchor": "lm"
+    },
+    "lb_remain": {
+      "x": 668,
+      "y": 372,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "今日剩余钓鱼次数",
+      "field": "remaining",
+      "anchor": "lm"
+    }
+  },
+  "slots": {
+    "title": {
+      "x": 26,
+      "y": 80,
+      "anchor": "lm",
+      "size": 23,
+      "color": ""
+    },
+    "name": {
+      "x": 122,
+      "y": 356,
+      "anchor": "mm",
+      "size": 21,
+      "color": "#3A2A1C"
+    },
+    "length": {
+      "x": 122,
+      "y": 386,
+      "anchor": "mm",
+      "size": 14,
+      "color": "#96785C"
+    },
+    "badge": {
+      "x": 122,
+      "y": 408,
+      "anchor": "mm",
+      "size": 12,
+      "color": "#2F9E63"
+    },
+    "badge2": {
+      "x": 122,
+      "y": 428,
+      "anchor": "mm",
+      "size": 12,
+      "color": "#2F9E63"
+    },
+    "rarity": {
+      "x": 386,
+      "y": 183,
+      "anchor": "rm",
+      "size": 14,
+      "color": "#7A4FD0"
+    },
+    "grade": {
+      "x": 386,
+      "y": 239,
+      "anchor": "rm",
+      "size": 14,
+      "color": "#1D6FB8"
+    },
+    "price": {
+      "x": 386,
+      "y": 295,
+      "anchor": "rm",
+      "size": 15,
+      "color": "#3A2A1C"
+    },
+    "lucky": {
+      "x": 386,
+      "y": 351,
+      "anchor": "rm",
+      "size": 15,
+      "color": "#3A2A1C"
+    },
+    "grown_len": {
+      "x": 260,
+      "y": 432,
+      "anchor": "lm",
+      "size": 15,
+      "color": "#3A2A1C"
+    },
+    "grown_info": {
+      "x": 260,
+      "y": 458,
+      "anchor": "lm",
+      "size": 12,
+      "color": "#2F9E63"
+    },
+    "gear_rod": {
+      "x": 468,
+      "y": 204,
+      "anchor": "lm",
+      "size": 13,
+      "color": "#3A2A1C"
+    },
+    "gear_line": {
+      "x": 468,
+      "y": 276,
+      "anchor": "lm",
+      "size": 13,
+      "color": "#3A2A1C"
+    },
+    "gear_bait": {
+      "x": 468,
+      "y": 348,
+      "anchor": "lm",
+      "size": 13,
+      "color": "#3A2A1C"
+    },
+    "gear_orb": {
+      "x": 468,
+      "y": 420,
+      "anchor": "lm",
+      "size": 13,
+      "color": "#C08A2E"
+    },
+    "remaining": {
+      "x": 680,
+      "y": 414,
+      "anchor": "lm",
+      "size": 15,
+      "color": "#3A2A1C"
+    }
+  },
+  "value_colors": {
+    "rarity": {
+      "普通": "#7B858C",
+      "稀有": "#2E7AC4",
+      "史诗": "#7A5AC8",
+      "传说": "#D9862E",
+      "神话": "#CE4239"
+    },
+    "grade": {
+      "D": "#8A94A0",
+      "C": "#3FA76A",
+      "B": "#2E86C8",
+      "A": "#8B5AD0",
+      "S": "#E08A2A",
+      "X": "#D6402F"
+    }
+  },
+  "themes": {
+    "普通": {
+      "image": "fishing_card_normal.png",
+      "air_image": "fishing_card_normal_air.png",
+      "title_color": "#33404A",
+      "tag_color": "#4A5862"
+    },
+    "稀有": {
+      "image": "fishing_card_rare.png",
+      "air_image": "fishing_card_rare_air.png",
+      "title_color": "#FFFFFF",
+      "tag_color": "#DCEDFB"
+    },
+    "史诗": {
+      "image": "fishing_card_epic.png",
+      "air_image": "fishing_card_epic_air.png",
+      "title_color": "#FFFFFF",
+      "tag_color": "#E8DFFA"
+    },
+    "传说": {
+      "image": "fishing_card_legendary.png",
+      "air_image": "fishing_card_legendary_air.png",
+      "title_color": "#FFFFFF",
+      "tag_color": "#FFF1DC"
+    },
+    "神话": {
+      "image": "fishing_card_mythic.png",
+      "air_image": "fishing_card_mythic_air.png",
+      "title_color": "#FFFFFF",
+      "tag_color": "#FBDDD9"
+    }
+  },
+  "air": {
+    "badge": {
+      "x": 122,
+      "y": 408,
+      "anchor": "mm",
+      "size": 12,
+      "color": "#B85C42",
+      "text": "鱼线被挣断，鱼逃走了..."
+    },
+    "texts": [
+      {
+        "x": 738,
+        "y": 231,
+        "anchor": "mm",
+        "size": 15,
+        "color": "#9A7A5C",
+        "text": "很可惜呢，"
+      },
+      {
+        "x": 738,
+        "y": 262,
+        "anchor": "mm",
+        "size": 15,
+        "color": "#D6832A",
+        "text": "下次再试试吧"
+      }
+    ]
+  },
+  "options": [
+    {
+      "x": 738,
+      "y": 187,
+      "anchor": "mm",
+      "text": "卖鱼",
+      "color": "#D6832A"
+    },
+    {
+      "x": 738,
+      "y": 247,
+      "anchor": "mm",
+      "text": "放生",
+      "color": "#4AA86E"
+    },
+    {
+      "x": 738,
+      "y": 307,
+      "anchor": "mm",
+      "text": "放入水族箱",
+      "color": "#C67828"
+    }
+  ]
+}
