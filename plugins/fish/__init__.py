@@ -17,7 +17,8 @@
 具体玩法数值与美术资源待补充（见 config_store / fish_config 的 TODO 标记）。
 
 旧版钓鱼已移除：漂流瓶完整迁出为独立插件 plugins/drift_bottle（与钓鱼
-解耦），每日钓鱼次数限制复用独立工具 fish_limit（chongwu / chaogu 共用）。
+解耦）；每日钓鱼次数限制由本模块的 fish_limit 子模块提供（chongwu /
+chaogu 共用同一口径与同一张表）。
 """
 
 from itertools import count
@@ -31,7 +32,7 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg, Depends
 from nonebot.plugin import PluginMetadata
 
-from ...fish_limit import FishLimitManager
+from .fish_limit import FishLimitManager
 from ...su_manager import is_su_contributor
 from ...tools import (
     build_forward_chain,

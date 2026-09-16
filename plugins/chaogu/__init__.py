@@ -25,7 +25,7 @@ from nonebot import logger
 from ...money import money
 from ...config_store import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain, get_at_uid, build_image_msg
-from ...fish_limit import FishLimitManager as FishingDB
+from ..fish.fish_limit import FishLimitManager as FishingDB
 from ...nickname import get_user_nickname
 from ..ai_draw import add_free_draw_count
 

@@ -35,7 +35,6 @@ from . import rate_limit as _rate_limit
 # 导入核心模块
 from . import uid_manager
 from . import money
-from . import fish_limit
 from . import resources
 from . import nickname
 from . import tools as _tools
@@ -68,13 +67,18 @@ async def init_koinoribot():
     uid_manager.set_database_path(str(db_path))
     money.set_database_path(str(db_path))
     nickname.set_db_path(str(db_path))
-    fish_limit.FishLimitManager.set_db_path(str(db_path))
 
     # 初始化数据库
     uid_manager.init_uid_database()
     money.init_money_database()
     nickname.init_nickname_database()
-    fish_limit.FishLimitManager.init_database()
+
+    # 每日钓鱼次数表（chongwu / chaogu / fish 共用；随 fish 模块存放，
+    # 不在文件头导入，避免子插件加载前就拉起 fish 包）
+    from .plugins.fish.fish_limit import FishLimitManager
+
+    FishLimitManager.set_db_path(str(db_path))
+    FishLimitManager.init_database()
 
     # 读取官Bot AppID配置
     if koinori_config.qqbot_appid:

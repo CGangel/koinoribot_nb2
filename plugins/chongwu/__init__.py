@@ -33,7 +33,7 @@ from .pet import (
     get_pet_data, get_status_description, update_pet_status, check_pet_evolution
 )
 from ...su_manager import is_su
-from ...fish_limit import FishLimitManager
+from ..fish.fish_limit import FishLimitManager
 from ...nickname import get_user_nickname
 from ...su_manager import get_excluded_su_uids
 from ..feisheng.data import get_all_pet_feisheng_status
