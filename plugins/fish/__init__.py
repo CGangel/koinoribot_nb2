@@ -22,7 +22,8 @@ update_config 双重强制）；
 
 旧版钓鱼已移除：漂流瓶完整迁出为独立插件 plugins/drift_bottle（与钓鱼
 解耦）；每日钓鱼次数限制由本模块的 fish_limit 子模块提供（chongwu /
-chaogu 共用同一口径与同一张表）。
+chaogu 共用同一口径与同一张表；表中区分「当日已钓次数 / 临时增益 /
+永久增益」，当天总上限 = 配置基础次数 + 临时增益 + 永久增益）。
 """
 
 from itertools import count
@@ -238,8 +239,7 @@ def _gear_block(item: dict, kind: str, owned: bool, index: int) -> list[str]:
     if kind == "rod":
         strength = _tier_word(index, "增加大鱼概率")
     else:
-        luck = int(item.get("luck", 0))
-        strength = f"幸运 +{luck}" if luck else "无"
+        strength = _tier_word(index, "减少空军概率")
     blocks = [f"{index}.{item['name']}", f"  属性：{strength}"]
     if item["durability"] is None:
         blocks.append("  耐久：无（不会损坏）")
@@ -340,6 +340,9 @@ async def handle_fish_help(bot: Bot, event: Event):
 # ===== 单抽钓鱼 =====
 cast_cmd = on_command("钓鱼", aliases={"🎣"}, priority=5, block=True)
 
+# 幸运暴击的标题前缀（只提示触发，不展示具体加成数值）
+LUCKY_CAST_PREFIX = "幸运暴击！"
+
 
 @cast_cmd.handle()
 async def handle_cast(
@@ -396,9 +399,7 @@ async def handle_cast(
     orb_lines = []
     if orb:
         if orb["lucky_cast"]:
-            lucky_prefix.append(
-                f"幸运暴击！幸运+{int(round(orb['lucky_bonus']))}"
-            )
+            lucky_prefix.append(LUCKY_CAST_PREFIX)
         if orb["just_full"]:
             orb_lines.append("幸运宝珠能量已满，下次钓鱼将触发幸运暴击！")
         else:
@@ -1265,7 +1266,7 @@ async def handle_shop(
 
 
 # ===== 渔具状态 =====
-gear_cmd = on_command("我的渔具", aliases={"钓鱼背包", "我的背包"}, priority=5, block=True)
+gear_cmd = on_command("我的渔具", aliases={"钓鱼背包", "我的背包", "背包"}, priority=5, block=True)
 
 
 async def _gear_list_text(uid: int) -> str:
@@ -1639,4 +1640,6 @@ async def init_fish():
     # 每日钓鱼次数与 chongwu / chaogu 共用 fish_limit 表（同一数据库）
     FishLimitManager.set_db_path(str(db_path))
     FishLimitManager.init_database()
+    # 永久增益按图鉴奖励领取记录校正（须在 FishDB 建表之后，确保记录表已存在）
+    FishLimitManager.reconcile_perm_bonus()
     logger.info("Fish 插件初始化完成")

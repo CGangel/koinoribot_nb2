@@ -1,10 +1,20 @@
 """每日钓鱼次数限制（fish 模块内的共用工具）。
 
 从旧版 fishing 插件的 util.DatabaseManager 抽出，只保留 fish_limit 表
-相关能力：记录每个 UID 当日已钓鱼次数与当日上限。宠物技能（捕鱼达人）、
-幸运转盘等奖励通过传入负数 count 为用户累加当日上限；图鉴奖励的
-「每日钓鱼次数上限」为永久加成（领取记录 + 配置推导，见
-_collection_limit_bonus），计入当日基础上限。
+相关能力。表结构（uid 主键，日期变更时自动重置当日计数）：
+
+- count       当日已钓次数（跨天清零）
+- temp_bonus  当日临时增益（宠物技能「捕鱼达人」、幸运转盘等，跨天清零）
+- perm_bonus  永久增益（图鉴奖励的「每日钓鱼次数上限」，跨天保留）
+- date_str    以上三项所属日期（据此判断是否需要重置）
+
+当天总次数上限 = 配置基础次数（config.fish_limit_count）
+                + temp_bonus + perm_bonus
+
+增益写入方式：临时增益由调用方以负数 count 追加（check_and_update_
+fish_limit）；永久增益在图鉴奖励领取时经 add_perm_bonus 累加，并在
+初始化 / 钓鱼模块启动时经 reconcile_perm_bonus 按「领取记录 + 当前
+配置」重算校正（配置面板改动在重启后对已领取用户生效）。
 
 虽随 fish 模块存放，但 **chongwu / chaogu 也共用**这套每日次数口径
 （三方写入同一张 fish_limit 表）；本模块只读 fish_config 的图鉴奖励
@@ -21,91 +31,51 @@ from ...config_store import config
 from .fish_config import collection_rewards
 
 
-def _collection_limit_bonus(uid: int) -> int:
-    """图鉴奖励带来的每日钓鱼次数永久加成。
-
-    已领取档位中 fish_limit 类奖励的数量合计（领取记录 + 当前配置推导，
-    配置热更新后立即按新值生效）。表不存在（fish 库未初始化）时返回 0。
-    """
-    db_path = FishLimitManager._db_path
-    if db_path is None:
-        return 0
+def _base_limit() -> int:
+    """配置中的每日基础次数（非法值回落 10）"""
     try:
-        conn = sqlite3.connect(db_path)
-        try:
-            rows = conn.execute(
-                'SELECT rarity, grade FROM fish_collection_rewards WHERE uid = ?',
-                (uid,),
-            ).fetchall()
-        finally:
-            conn.close()
-    except Exception:
-        return 0
-    rewards = collection_rewards()
-    bonus = 0
-    for rarity, grade in rows:
-        for item in rewards.get(f"{rarity}:{grade}", []):
-            if item.get("type") == "fish_limit":
-                bonus += int(item.get("count", 0))
-    return bonus
-
-
-def _default_limit_for(uid: int) -> int:
-    """某用户的当日基础上限 = 全局次数 + 图鉴奖励永久加成"""
-    try:
-        base = int(config.fish_limit_count)
+        return max(0, int(config.fish_limit_count))
     except (TypeError, ValueError):
-        base = 10
-    return base + _collection_limit_bonus(uid)
+        return 10
 
 
-def _fish_limit_statement(
-    result,
-    today: str,
-    count: int,
-    default_limit: int,
-):
-    """根据当前行与目标增量生成待执行的 SQL 语句。
+def _today() -> str:
+    return datetime.now().strftime('%Y-%m-%d')
 
-    result 为该 uid 的现有行（date_str, count, limit_count），None 表示无行。
-    count 为正数表示消耗次数，负数表示增加当日上限。
-    当日行的 limit_count 以 default_limit 为下限（图鉴奖励的永久加成
-    领取后立即抬升当日上限，不影响宠物技能等临时加成）。
+
+def _daily_limit(temp_bonus: int, perm_bonus: int) -> int:
+    """当天总次数上限 = 配置基础次数 + 临时增益 + 永久增益"""
+    return _base_limit() + int(temp_bonus) + int(perm_bonus)
+
+
+def _table_exists(cursor, name: str) -> bool:
+    return cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone() is not None
+
+
+def _perm_bonus_by_uid(cursor) -> dict[int, int]:
+    """由图鉴奖励领取记录 + 当前配置推导的永久增益（按 uid 汇总）。
+
+    领取记录表不存在时返回空字典：此时不存在任何领取记录，加成 0 即正确值。
     """
-    if result is None:
-        if count < 0:
-            return (
-                'INSERT INTO fish_limit (uid, date_str, count, limit_count) VALUES (?, ?, 0, ?)',
-                (today, default_limit - count),
-            )
-        return (
-            'INSERT INTO fish_limit (uid, date_str, count, limit_count) VALUES (?, ?, ?, ?)',
-            (today, count, default_limit),
+    if not _table_exists(cursor, "fish_collection_rewards"):
+        return {}
+    rows = cursor.execute(
+        'SELECT uid, rarity, grade FROM fish_collection_rewards'
+    ).fetchall()
+    rewards = collection_rewards()
+    result: dict[int, int] = {}
+    for row in rows:
+        uid = int(row["uid"])
+        bonus = sum(
+            int(item.get("count", 0))
+            for item in rewards.get(f"{row['rarity']}:{row['grade']}", [])
+            if item.get("type") == "fish_limit"
         )
-
-    date_str, current_count, current_limit = result
-    if date_str != today:
-        reset_count = 0 if count < 0 else count
-        reset_limit = default_limit - count if count < 0 else default_limit
-        return (
-            'UPDATE fish_limit SET date_str = ?, count = ?, limit_count = ?, updated_time = CURRENT_TIMESTAMP WHERE uid = ?',
-            (today, reset_count, reset_limit),
-        )
-
-    current_limit = max(current_limit, default_limit)
-    if count < 0:
-        return (
-            'UPDATE fish_limit SET limit_count = ?, updated_time = CURRENT_TIMESTAMP WHERE uid = ?',
-            (current_limit - count,),
-        )
-
-    new_count = current_count + count
-    if new_count > current_limit:
-        return None
-    return (
-        'UPDATE fish_limit SET count = ?, updated_time = CURRENT_TIMESTAMP WHERE uid = ?',
-        (new_count,),
-    )
+        if bonus:
+            result[uid] = result.get(uid, 0) + bonus
+    return result
 
 
 class FishLimitManager:
@@ -113,6 +83,8 @@ class FishLimitManager:
 
     _db_path: Optional[str] = None
     _db_initialized: bool = False
+
+    # ===== 路径与建表 =====
 
     @classmethod
     def set_db_path(cls, path: str):
@@ -133,67 +105,158 @@ class FishLimitManager:
 
     @classmethod
     def init_database(cls):
-        """初始化 fish_limit 表（幂等）"""
+        """初始化 fish_limit 表（幂等；旧结构自动重建为新结构）"""
         if cls._db_initialized:
             return
 
         conn = cls.get_connection()
         cursor = conn.cursor()
 
+        cls._migrate_legacy_table(cursor)
+        cls._create_table(cursor)
+
+        conn.commit()
+        conn.close()
+        cls._db_initialized = True
+        # 永久增益按「领取记录 + 当前配置」校正（领取记录表尚未建立时为空操作）
+        cls.reconcile_perm_bonus()
+        logger.info("fish_limit 表初始化完成")
+
+    @staticmethod
+    def _create_table(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fish_limit (
                 uid INTEGER PRIMARY KEY,
                 date_str TEXT NOT NULL,
                 count INTEGER NOT NULL DEFAULT 0,
-                limit_count INTEGER NOT NULL DEFAULT 0,
+                temp_bonus INTEGER NOT NULL DEFAULT 0,
+                perm_bonus INTEGER NOT NULL DEFAULT 0,
                 updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
             )
         ''')
 
-        conn.commit()
-        conn.close()
-        cls._db_initialized = True
-        logger.info("fish_limit 表初始化完成")
+    @classmethod
+    def _migrate_legacy_table(cls, cursor) -> None:
+        """旧结构（count + limit_count 当日上限）重建为新结构。
+
+        旧 limit_count 中超出「基础次数 + 图鉴奖励永久加成」的部分还原为
+        当日临时增益；永久加成按领取记录推导写入；跨天行计数与临时增益
+        清零、永久增益保留。
+        """
+        if not _table_exists(cursor, "fish_limit"):
+            return
+        columns = {
+            row[1] for row in cursor.execute("PRAGMA table_info(fish_limit)")
+        }
+        if "temp_bonus" in columns:
+            return                       # 已是新结构
+
+        cursor.execute("ALTER TABLE fish_limit RENAME TO fish_limit_legacy")
+        cls._create_table(cursor)
+        perm_map = _perm_bonus_by_uid(cursor)
+        base = _base_limit()
+        today = _today()
+        rows = cursor.execute(
+            "SELECT uid, date_str, count, limit_count FROM fish_limit_legacy"
+        ).fetchall()
+        for row in rows:
+            uid = int(row["uid"])
+            perm = perm_map.get(uid, 0)
+            if row["date_str"] == today:
+                count = int(row["count"] or 0)
+                temp = max(0, int(row["limit_count"] or 0) - base - perm)
+            else:
+                count = temp = 0        # 跨天：当日计数与临时增益清零
+            cursor.execute(
+                'INSERT INTO fish_limit'
+                ' (uid, date_str, count, temp_bonus, perm_bonus)'
+                ' VALUES (?, ?, ?, ?, ?)',
+                (uid, today, count, temp, perm),
+            )
+        cursor.execute("DROP TABLE fish_limit_legacy")
+        logger.warning(
+            f"[fish_limit] 旧表结构已重建（{len(rows)} 行，"
+            "临时/永久增益已还原）"
+        )
+
+    # ===== 当日状态读写 =====
+
+    @staticmethod
+    def _load_state(cursor, uid: int, today: str) -> dict:
+        """读取当日状态；跨天（或无行）时已钓次数与临时增益视为 0，
+        永久增益保留——重置在下次写入时落库。"""
+        row = cursor.execute(
+            'SELECT date_str, count, temp_bonus, perm_bonus'
+            ' FROM fish_limit WHERE uid = ?',
+            (uid,),
+        ).fetchone()
+        if row is None:
+            return {"count": 0, "temp_bonus": 0, "perm_bonus": 0}
+        perm = int(row["perm_bonus"] or 0)
+        if row["date_str"] != today:
+            return {"count": 0, "temp_bonus": 0, "perm_bonus": perm}
+        return {
+            "count": int(row["count"] or 0),
+            "temp_bonus": int(row["temp_bonus"] or 0),
+            "perm_bonus": perm,
+        }
+
+    @staticmethod
+    def _write_state(cursor, uid: int, today: str, count: int,
+                     temp_bonus: int, perm_bonus: int) -> None:
+        cursor.execute(
+            'INSERT INTO fish_limit'
+            ' (uid, date_str, count, temp_bonus, perm_bonus)'
+            ' VALUES (?, ?, ?, ?, ?)'
+            ' ON CONFLICT(uid) DO UPDATE SET'
+            ' date_str = excluded.date_str, count = excluded.count,'
+            ' temp_bonus = excluded.temp_bonus,'
+            ' perm_bonus = excluded.perm_bonus,'
+            ' updated_time = CURRENT_TIMESTAMP',
+            (uid, today, count, temp_bonus, perm_bonus),
+        )
+
+    # ===== 次数消耗与增益 =====
 
     @classmethod
     def check_and_update_fish_limit(cls, uid: int, count: int) -> bool:
-        """
-        检查并更新用户钓鱼次数限制
+        """消耗当日次数或追加当日临时增益。
 
         Args:
             uid: 用户ID
-            count: 要增加的次数（可以是负数，负数表示增加当日上限）
+            count: 正数为消耗次数（超出当天总上限时返回 False 且不修改）；
+                   负数为追加当日临时增益（宠物技能/幸运转盘，恒成功）；
+                   0 为空操作
 
         Returns:
-            如果未达到上限则增加计数并返回True，达到上限返回False
+            是否成功更新
         """
         cls.init_database()
 
-        today_str = datetime.now().strftime('%Y-%m-%d')
+        today = _today()
         conn = cls.get_connection()
         cursor = conn.cursor()
 
         try:
-            cursor.execute(
-                'SELECT date_str, count, limit_count FROM fish_limit WHERE uid = ?',
-                (uid,)
-            )
-            result = cursor.fetchone()
-            default_limit = _default_limit_for(uid)
-            statement = _fish_limit_statement(
-                result,
-                today_str,
-                count,
-                default_limit,
-            )
-            if statement is None:
+            state = cls._load_state(cursor, uid, today)
+            if count > 0:
+                limit = _daily_limit(state["temp_bonus"], state["perm_bonus"])
+                if state["count"] + count > limit:
+                    conn.close()
+                    return False
+                new_count = state["count"] + count
+                new_temp = state["temp_bonus"]
+            elif count < 0:
+                new_count = state["count"]
+                new_temp = state["temp_bonus"] - count
+            else:
                 conn.close()
-                return False
+                return True
 
-            sql, parameters = statement
-            cursor.execute(sql, (uid, *parameters) if sql.startswith('INSERT') else (*parameters, uid))
-
+            cls._write_state(
+                cursor, uid, today, new_count, new_temp, state["perm_bonus"]
+            )
             conn.commit()
             conn.close()
             return True
@@ -205,6 +268,91 @@ class FishLimitManager:
             return False
 
     @classmethod
+    def add_perm_bonus(cls, uid: int, amount: int) -> int:
+        """累加永久增益（图鉴奖励领取时调用），返回累加后的值。
+
+        失败返回 0（调用方据此判断是否发放成功）。
+        """
+        if amount <= 0:
+            return 0
+        cls.init_database()
+
+        today = _today()
+        conn = cls.get_connection()
+        cursor = conn.cursor()
+        try:
+            state = cls._load_state(cursor, uid, today)
+            perm = state["perm_bonus"] + int(amount)
+            cls._write_state(
+                cursor, uid, today, state["count"], state["temp_bonus"], perm
+            )
+            conn.commit()
+            conn.close()
+            return perm
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"累加永久钓鱼次数失败: {e}")
+            return 0
+
+    @classmethod
+    def reconcile_perm_bonus(cls) -> int:
+        """按图鉴奖励领取记录 + 当前配置重算全部用户的永久增益，
+        仅在与表内值不同时写回，返回更新的用户数。
+
+        初始化 / 钓鱼模块启动时调用：完成历史数据还原，并让配置面板对
+        图鉴奖励的修改在重启后对已领取用户生效。领取记录表不存在时为
+        空操作（不视为「加成归零」）。
+        """
+        if cls._db_path is None:
+            return 0
+
+        today = _today()
+        conn = cls.get_connection()
+        cursor = conn.cursor()
+        try:
+            if not _table_exists(cursor, "fish_limit"):
+                conn.close()
+                return 0
+            expected = _perm_bonus_by_uid(cursor)
+            updated = 0
+            seen = set()
+            rows = cursor.execute(
+                'SELECT uid, date_str, count, temp_bonus, perm_bonus'
+                ' FROM fish_limit'
+            ).fetchall()
+            for row in rows:
+                uid = int(row["uid"])
+                seen.add(uid)
+                want = expected.get(uid, 0)
+                if int(row["perm_bonus"] or 0) == want:
+                    continue
+                if row["date_str"] != today:
+                    cls._write_state(cursor, uid, today, 0, 0, want)
+                else:
+                    cls._write_state(
+                        cursor, uid, today, int(row["count"] or 0),
+                        int(row["temp_bonus"] or 0), want,
+                    )
+                updated += 1
+            # 有领取记录但表中尚无行的用户：补一行（仅永久增益）
+            for uid, want in expected.items():
+                if uid in seen or want <= 0:
+                    continue
+                cls._write_state(cursor, uid, today, 0, 0, want)
+                updated += 1
+            conn.commit()
+            conn.close()
+            if updated:
+                logger.info(f"[fish_limit] 永久增益校正完成：{updated} 个用户")
+            return updated
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"[fish_limit] 永久增益校正失败: {e}")
+            return 0
+
+    @classmethod
     def refund_today_count(cls, uid: int, count: int = 1) -> bool:
         """退还今日已消耗的钓鱼次数（当日有记录才生效，减到 0 为止）。
 
@@ -213,7 +361,7 @@ class FishLimitManager:
         """
         cls.init_database()
 
-        today_str = datetime.now().strftime('%Y-%m-%d')
+        today = _today()
         conn = cls.get_connection()
         cursor = conn.cursor()
         try:
@@ -221,7 +369,7 @@ class FishLimitManager:
                 'UPDATE fish_limit SET count = MAX(0, count - ?), '
                 'updated_time = CURRENT_TIMESTAMP '
                 'WHERE uid = ? AND date_str = ?',
-                (count, uid, today_str),
+                (count, uid, today),
             )
             affected = cursor.rowcount
             conn.commit()
@@ -235,29 +383,20 @@ class FishLimitManager:
 
     @classmethod
     def get_user_fish_count_today(cls, uid: int) -> tuple:
-        """
-        获取用户今日已钓鱼次数
+        """获取用户今日已钓鱼次数与当天总次数上限。
 
         Returns:
-            (today_count, limit_count)
+            (today_count, limit_count)；limit = 基础次数 + 临时增益 + 永久增益
         """
         cls.init_database()
 
-        today_str = datetime.now().strftime('%Y-%m-%d')
+        today = _today()
         conn = cls.get_connection()
         cursor = conn.cursor()
-
-        cursor.execute(
-            'SELECT count, limit_count FROM fish_limit WHERE uid = ? AND date_str = ?',
-            (uid, today_str)
+        try:
+            state = cls._load_state(cursor, uid, today)
+        finally:
+            conn.close()
+        return state["count"], _daily_limit(
+            state["temp_bonus"], state["perm_bonus"]
         )
-        result = cursor.fetchone()
-
-        conn.close()
-
-        if result:
-            # 当日上限同样以「全局次数 + 图鉴奖励永久加成」为下限，
-            # 与 check_and_update 的口径一致（展示值与判定值不漂移）
-            return result['count'], max(result['limit_count'], _default_limit_for(uid))
-        else:
-            return 0, _default_limit_for(uid)

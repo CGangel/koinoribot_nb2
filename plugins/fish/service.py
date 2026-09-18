@@ -12,6 +12,7 @@ import time
 from ...money import money
 from . import fish_config as C
 from .db import FishDB
+from .fish_limit import FishLimitManager
 from .fish_config import (
     GRADE_ORDER,
     RARITY_ORDER,
@@ -829,6 +830,8 @@ class FishService:
             await FishDB.save_player(player)
             return f"{pump['name']}×1"
         if rtype == "fish_limit":
+            # 永久增益写入 fish_limit 表的 perm_bonus（当天总次数 = 基础 + 临时 + 永久）
+            FishLimitManager.add_perm_bonus(uid, count)
             return f"每日钓鱼次数上限+{count}"
         if rtype == "su_code":
             return "SU激活码获取权限（发送 获取激活码 使用）"
