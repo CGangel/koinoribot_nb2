@@ -22,6 +22,7 @@ TODO(balance): 具体数值待玩法设计定稿。
 """
 
 from ...config_store import config
+from ...config_store import _FISH_COLLECTION_REWARDS_DEFAULT
 
 # ================== 稀有度（品种分层，固定 5 档） ==================
 RARITIES: dict[str, dict] = {
@@ -486,6 +487,133 @@ def slot_price(slot_no: int) -> int:
 def auto_sell_threshold() -> int:
     """自动出售阈值：开启后成长封顶售价低于该值的鱼钓上即卖（配置可改）"""
     return _orb_int(config.fish_auto_sell_threshold, 10000, 0)
+
+
+# ================== 图鉴奖励（配置面板可改） ==================
+
+# 配置格式：{"稀有度:级别档": {"奖励": {奖励键: 数量}}}——外层「奖励」包裹
+# 使面板二级子页以嵌套键值块渲染（可自由增删改单项、单档配多项）；
+# 旧扁平格式 {"稀有度:级别档": {奖励键: 数量}} 仍可读取。
+# 奖励键：预留键（gold/luckygold/kirastone/orb/pump/fish_limit/su_code）
+# 或钓鱼商店商品 id（鱼饵/鱼竿/鱼线，类型按所在表推导）。
+# 读取时规范化为 [{type, count[, id]}, ...]；非消耗品数量强制 1。
+REWARD_CONSUMABLE_TYPES = {"gold", "luckygold", "kirastone", "bait", "fish_limit"}
+REWARD_TYPES = REWARD_CONSUMABLE_TYPES | {
+    "rod", "line", "orb", "pump", "su_code",
+}
+# 需要商品 id 的类型（对应钓鱼商店表条目）
+REWARD_ID_TYPES = {"bait", "rod", "line"}
+
+# 预留奖励键 → 类型（与商店商品 id 区分开）
+_REWARD_RESERVED: dict[str, str] = {
+    "gold": "gold",
+    "luckygold": "luckygold",
+    "kirastone": "kirastone",
+    "orb": "orb",
+    "pump": "pump",
+    "fish_limit": "fish_limit",
+    "su_code": "su_code",
+}
+
+
+def _reward_key(rarity: str, grade: str) -> str:
+    return f"{rarity}:{grade}"
+
+
+def _norm_reward_items(raw) -> list[dict]:
+    """规范化单档奖励：解包「奖励」嵌套块（兼容旧扁平格式）后，
+    预留键直接映射类型，其余按钓鱼商店表推导鱼饵/鱼竿/鱼线；
+    数量非法/未知的键丢弃；非消耗品数量强制 1。"""
+    if not isinstance(raw, dict):
+        return []
+    if isinstance(raw.get("奖励"), dict):
+        raw = raw["奖励"]
+    items: list[dict] = []
+    for key, value in raw.items():
+        key = str(key).strip()
+        if not key or key == "奖励":
+            continue
+        try:
+            count = max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+        if key in _REWARD_RESERVED:
+            rtype = _REWARD_RESERVED[key]
+        elif key in bait_table():
+            rtype = "bait"
+        elif key in rod_table():
+            rtype = "rod"
+        elif key in line_table():
+            rtype = "line"
+        else:
+            continue
+        item = {"type": rtype}
+        if rtype in REWARD_ID_TYPES:
+            item["id"] = key
+        item["count"] = 1 if rtype not in REWARD_CONSUMABLE_TYPES else count
+        if item["count"] >= 1:
+            items.append(item)
+    return items
+
+
+def collection_rewards() -> dict[str, list[dict]]:
+    """图鉴奖励目录（规范化后）{"稀有度:级别档": [{type, count[, id]}, ...]}。
+
+    配置面板可增删改（fish_collection_rewards）；键缺失或整档条目非法时
+    该档回落内置默认值，保证 30 档奖励始终可玩（与商店表回落策略一致）。
+    """
+    raw = config.fish_collection_rewards
+    raw = raw if isinstance(raw, dict) else {}
+    table: dict[str, list[dict]] = {}
+    valid_keys = {
+        _reward_key(rarity, grade)
+        for rarity in RARITY_ORDER for grade in GRADE_ORDER
+    }
+    for key in valid_keys:
+        items = _norm_reward_items(raw.get(key))
+        if not items:
+            items = _norm_reward_items(_FISH_COLLECTION_REWARDS_DEFAULT.get(key))
+        if items:
+            table[key] = items
+    return table
+
+
+def reward_items_of(rarity: str, grade: str) -> list[dict]:
+    """单档奖励列表（无奖励返回空列表）"""
+    return collection_rewards().get(_reward_key(rarity, grade), [])
+
+
+def reward_item_display(item: dict) -> str | None:
+    """奖励项展示文本（查看图鉴奖励用；商品 id 失效时显示原始 id）"""
+    rtype = item.get("type")
+    try:
+        count = int(item.get("count", 1))
+    except (TypeError, ValueError):
+        count = 1
+    if rtype == "gold":
+        return f"金币×{count}"
+    if rtype == "luckygold":
+        return f"幸运币×{count}"
+    if rtype == "kirastone":
+        return f"宝石×{count}"
+    if rtype == "bait":
+        bait = bait_table().get(item.get("id", ""))
+        name = bait["name"] if bait else str(item.get("id", "未知鱼饵"))
+        return f"{name}×{count}"
+    if rtype in ("rod", "line"):
+        table = rod_table() if rtype == "rod" else line_table()
+        gear = table.get(item.get("id", ""))
+        name = gear["name"] if gear else str(item.get("id", "未知装备"))
+        return name
+    if rtype == "orb":
+        return orb_info()["name"]
+    if rtype == "pump":
+        return pump_info()["name"]
+    if rtype == "fish_limit":
+        return f"每日钓鱼次数+{count}"
+    if rtype == "su_code":
+        return "SU激活码获取权限"
+    return None
 
 
 # ================== 杂项 ==================

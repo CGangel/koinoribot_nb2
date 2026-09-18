@@ -2,10 +2,13 @@
 
 从旧版 fishing 插件的 util.DatabaseManager 抽出，只保留 fish_limit 表
 相关能力：记录每个 UID 当日已钓鱼次数与当日上限。宠物技能（捕鱼达人）、
-幸运转盘等奖励通过传入负数 count 为用户累加当日上限。
+幸运转盘等奖励通过传入负数 count 为用户累加当日上限；图鉴奖励的
+「每日钓鱼次数上限」为永久加成（领取记录 + 配置推导，见
+_collection_limit_bonus），计入当日基础上限。
 
 虽随 fish 模块存放，但 **chongwu / chaogu 也共用**这套每日次数口径
-（三方写入同一张 fish_limit 表）；本模块不依赖 fish 玩法本身，可独立导入。
+（三方写入同一张 fish_limit 表）；本模块只读 fish_config 的图鉴奖励
+配置，不依赖 fish 玩法本身。
 """
 
 import sqlite3
@@ -15,6 +18,45 @@ from typing import Optional
 from nonebot.log import logger
 
 from ...config_store import config
+from .fish_config import collection_rewards
+
+
+def _collection_limit_bonus(uid: int) -> int:
+    """图鉴奖励带来的每日钓鱼次数永久加成。
+
+    已领取档位中 fish_limit 类奖励的数量合计（领取记录 + 当前配置推导，
+    配置热更新后立即按新值生效）。表不存在（fish 库未初始化）时返回 0。
+    """
+    db_path = FishLimitManager._db_path
+    if db_path is None:
+        return 0
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                'SELECT rarity, grade FROM fish_collection_rewards WHERE uid = ?',
+                (uid,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return 0
+    rewards = collection_rewards()
+    bonus = 0
+    for rarity, grade in rows:
+        for item in rewards.get(f"{rarity}:{grade}", []):
+            if item.get("type") == "fish_limit":
+                bonus += int(item.get("count", 0))
+    return bonus
+
+
+def _default_limit_for(uid: int) -> int:
+    """某用户的当日基础上限 = 全局次数 + 图鉴奖励永久加成"""
+    try:
+        base = int(config.fish_limit_count)
+    except (TypeError, ValueError):
+        base = 10
+    return base + _collection_limit_bonus(uid)
 
 
 def _fish_limit_statement(
@@ -27,6 +69,8 @@ def _fish_limit_statement(
 
     result 为该 uid 的现有行（date_str, count, limit_count），None 表示无行。
     count 为正数表示消耗次数，负数表示增加当日上限。
+    当日行的 limit_count 以 default_limit 为下限（图鉴奖励的永久加成
+    领取后立即抬升当日上限，不影响宠物技能等临时加成）。
     """
     if result is None:
         if count < 0:
@@ -48,6 +92,7 @@ def _fish_limit_statement(
             (today, reset_count, reset_limit),
         )
 
+    current_limit = max(current_limit, default_limit)
     if count < 0:
         return (
             'UPDATE fish_limit SET limit_count = ?, updated_time = CURRENT_TIMESTAMP WHERE uid = ?',
@@ -135,7 +180,7 @@ class FishLimitManager:
                 (uid,)
             )
             result = cursor.fetchone()
-            default_limit = config.fish_limit_count
+            default_limit = _default_limit_for(uid)
             statement = _fish_limit_statement(
                 result,
                 today_str,
@@ -211,6 +256,8 @@ class FishLimitManager:
         conn.close()
 
         if result:
-            return result['count'], result['limit_count']
+            # 当日上限同样以「全局次数 + 图鉴奖励永久加成」为下限，
+            # 与 check_and_update 的口径一致（展示值与判定值不漂移）
+            return result['count'], max(result['limit_count'], _default_limit_for(uid))
         else:
-            return 0, config.fish_limit_count
+            return 0, _default_limit_for(uid)

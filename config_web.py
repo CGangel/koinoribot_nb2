@@ -459,6 +459,12 @@ let draft = {};              // key -> 草稿值（未保存修改，切页保�
 const SHOP_NAME_LOCKED_FIELDS = new Set([
   'fish_shop_rods', 'fish_shop_lines', 'fish_shop_baits',
 ]);
+// 条目固定的集合配置（渔具/鱼饵/稀有度权重/级别区间/图鉴奖励档位）：
+// 键不可增删改，只能改各自属性（后端 update_config 强制保留默认键集）
+const FIXED_ENTRY_DESC = '条目固定：不可新增/删除/修改条目，只能修改各条目的属性';
+// 商店条目内嵌权重块的键固定（鱼竿级别 D/C/B/A/S/X、鱼饵稀有度 5 档）：
+// 不可新增/删除/改名属性，只能修改权重数值
+const FIXED_NESTED_DESC = '属性名固定：不可新增/删除/改名，只能修改数值';
 
 const byId = k => document.getElementById('f_' + k);
 
@@ -660,6 +666,8 @@ function renderDict(f) {
   const entries = current && typeof current === 'object' && !Array.isArray(current)
     ? Object.entries(current) : [];
   const defType = numberTypeOf(entries.map(e => e[1]));
+  // 条目固定：键不可改、行不可删、不可新增（如稀有度权重/级别区间）
+  const fixedEntries = !!f.fixed_entries;
 
   function addRow(k, v, etype) {
     const row = el('div', 'row');
@@ -670,11 +678,19 @@ function renderDict(f) {
     valIn.placeholder = '值';
     if (k !== undefined) keyIn.value = String(k);
     if (v !== undefined && v !== '') valIn.value = String(v);
-    const del = el('button', 'del', '✕');
-    del.onclick = () => { row.remove(); syncDict(); };
-    row.append(keyIn, el('span', 'arrow', '→'), valIn, del);
+    if (fixedEntries) {
+      keyIn.disabled = true;
+      keyIn.title = FIXED_ENTRY_DESC;
+    } else {
+      const del = el('button', 'del', '✕');
+      del.onclick = () => { row.remove(); syncDict(); };
+      row.append(keyIn, el('span', 'arrow', '→'), valIn, del);
+      keyIn.addEventListener('input', syncDict);
+      wrap.appendChild(row);
+      return;
+    }
+    row.append(keyIn, el('span', 'arrow', '→'), valIn);
     wrap.appendChild(row);
-    keyIn.addEventListener('input', syncDict);
     valIn.addEventListener('input', syncDict);
   }
 
@@ -692,16 +708,18 @@ function renderDict(f) {
 
   if (!entries.length) wrap.appendChild(el('div', 'empty-tip', '（空）'));
   entries.forEach(([k, v]) => addRow(k, v, typeof v === 'number' ? 'number' : 'string'));
-  const add = el('button', 'add', '+ 添加键值对');
-  add.onclick = () => {
-    const tip = wrap.querySelector('.empty-tip');
-    if (tip) tip.remove();
-    addRow(undefined, undefined, defType);
-    const rows = wrap.querySelectorAll('.row');
-    if (rows.length) rows[rows.length - 1].querySelector('[data-role=k]').focus();
-    syncDict();
-  };
-  wrap.appendChild(add);
+  if (!fixedEntries) {
+    const add = el('button', 'add', '+ 添加键值对');
+    add.onclick = () => {
+      const tip = wrap.querySelector('.empty-tip');
+      if (tip) tip.remove();
+      addRow(undefined, undefined, defType);
+      const rows = wrap.querySelectorAll('.row');
+      if (rows.length) rows[rows.length - 1].querySelector('[data-role=k]').focus();
+      syncDict();
+    };
+    wrap.appendChild(add);
+  }
   return wrap;
 }
 
@@ -789,47 +807,89 @@ function renderFieldPage(f) {
     block.dataset.sk = sk;
     block.appendChild(el('label', null, sk));
     const sub = (typeof sv === 'object' && sv !== null) ? sv : {};
+    // 键固定的嵌套块（鱼竿级别概率/鱼饵稀有度概率）：键不可增删改，只能改值
+    const keysLocked = (f.locked_nested_keys || []).includes(sk);
+    // 键可选集合且提供下拉选项（图鉴奖励：奖励键中文化为下拉）
+    const choices = (f.nested_choices || {})[sk] || null;
 
     function addKvRow(nk, nv) {
       const row = el('div', 'kvrow');
-      const nkIn = document.createElement('input');
-      nkIn.type = 'text'; nkIn.dataset.role = 'nk'; nkIn.placeholder = '属性名';
-      if (nk !== undefined) nkIn.value = String(nk);
+      let nkIn;
+      if (choices) {
+        nkIn = document.createElement('select');
+        nkIn.dataset.role = 'nk';
+        const current = nk !== undefined ? String(nk) : '';
+        let matched = false;
+        for (const c of choices) {
+          const opt = document.createElement('option');
+          opt.value = c.value; opt.textContent = c.label;
+          if (c.value === current) matched = true;
+          nkIn.appendChild(opt);
+        }
+        if (current && !matched) {
+          // 已配置但不在选项内（如商品被删）：保留为原值便于查看/改回
+          const opt = document.createElement('option');
+          opt.value = current; opt.textContent = current + '（未知奖励）';
+          nkIn.appendChild(opt);
+        }
+        nkIn.value = current || choices[0].value;
+        nkIn.title = '奖励内容（下拉选择）';
+      } else {
+        nkIn = document.createElement('input');
+        nkIn.type = 'text'; nkIn.dataset.role = 'nk'; nkIn.placeholder = '属性名';
+        if (nk !== undefined) nkIn.value = String(nk);
+        if (keysLocked) {
+          nkIn.disabled = true;
+          nkIn.title = FIXED_NESTED_DESC;
+        }
+      }
       const nvIn = document.createElement('input');
       nvIn.type = 'text'; nvIn.dataset.role = 'nv';
-      nvIn.dataset.etype = typeof nv === 'number' ? 'number' : 'string';
+      // 奖励数量恒为数字：新行也按 number 存，避免存成字符串
+      nvIn.dataset.etype = (choices || typeof nv === 'number') ? 'number' : 'string';
       nvIn.placeholder = '值';
       if (nv !== undefined && nv !== null) nvIn.value = String(nv);
-      const del = el('button', 'del', '✕');
-      del.onclick = () => { row.remove(); syncEntries(); };
-      row.append(nkIn, nvIn, del);
+      row.append(nkIn, nvIn);
+      if (!keysLocked) {
+        const del = el('button', 'del', '✕');
+        del.onclick = () => { row.remove(); syncEntries(); };
+        row.appendChild(del);
+      }
       block.appendChild(row);
-      nkIn.addEventListener('input', syncEntries);
+      if (!choices) nkIn.addEventListener('input', syncEntries);
       nvIn.addEventListener('input', syncEntries);
     }
 
     Object.entries(sub).forEach(([nk, nv]) => addKvRow(nk, nv));
-    const add = el('button', 'add', '+ 添加属性');
-    add.onclick = () => { addKvRow(undefined, undefined); syncEntries(); };
-    block.appendChild(add);
+    if (!keysLocked) {
+      const add = el('button', 'add', '+ 添加属性');
+      add.onclick = () => { addKvRow(undefined, undefined); syncEntries(); };
+      block.appendChild(add);
+    }
     body.appendChild(block);
   }
 
   function addEntryCard(key, val) {
     const nameLocked = SHOP_NAME_LOCKED_FIELDS.has(f.key);
+    // 条目固定：条目 id 锁定、不可删除（如渔具/鱼饵目录、图鉴奖励档位）
+    const fixedEntries = !!f.fixed_entries;
     const card = el('div', 'entry');
     const headRow = el('div', 'ehead');
     const keyIn = document.createElement('input');
     keyIn.type = 'text'; keyIn.dataset.role = 'ek'; keyIn.placeholder = '条目 id';
     if (key !== undefined) keyIn.value = String(key);
-    if (nameLocked && key !== undefined) {
+    if ((nameLocked || fixedEntries) && key !== undefined) {
       // 已有商品：条目 id 同名称一并锁定（改 id 等于换商品）
       keyIn.disabled = true;
-      keyIn.title = '已有商品的 id 不可修改';
+      keyIn.title = fixedEntries ? FIXED_ENTRY_DESC
+        : '已有商品的 id 不可修改';
     }
-    const del = el('button', 'del', '✕');
-    del.onclick = () => { card.remove(); syncEntries(); };
-    headRow.append(keyIn, del);
+    headRow.append(keyIn);
+    if (!fixedEntries) {
+      const del = el('button', 'del', '✕');
+      del.onclick = () => { card.remove(); syncEntries(); };
+      headRow.append(del);
+    }
     card.appendChild(headRow);
 
     const body = el('div', 'ebody');
@@ -848,16 +908,18 @@ function renderFieldPage(f) {
   }
   for (const [k, v] of Object.entries(entries)) addEntryCard(k, v);
 
-  const add = el('button', 'add', '+ 添加条目');
-  add.onclick = () => {
-    const tip = entriesBox.querySelector('.empty-tip');
-    if (tip) tip.remove();
-    addEntryCard(undefined, entryTemplate(entries));
-    syncEntries();
-    const cards = entriesBox.querySelectorAll('.entry');
-    if (cards.length) cards[cards.length - 1].querySelector('[data-role=ek]').focus();
-  };
-  page.appendChild(add);
+  if (!f.fixed_entries) {
+    const add = el('button', 'add', '+ 添加条目');
+    add.onclick = () => {
+      const tip = entriesBox.querySelector('.empty-tip');
+      if (tip) tip.remove();
+      addEntryCard(undefined, entryTemplate(entries));
+      syncEntries();
+      const cards = entriesBox.querySelectorAll('.entry');
+      if (cards.length) cards[cards.length - 1].querySelector('[data-role=ek]').focus();
+    };
+    page.appendChild(add);
+  }
   return page;
 }
 

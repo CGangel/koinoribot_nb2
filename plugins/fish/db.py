@@ -6,6 +6,8 @@
 - fish_bait_bag:   商店鱼饵库存（uid + bait_id 唯一；初始鱼饵无限不落库）
 - fish_items:      鱼实例（背包/水族箱共用，place 区分）
 - fish_collection: 图鉴（按品种记录总数、历史最大级别与钓获时最大长度）
+- fish_collection_rewards: 图鉴奖励领取记录（uid + 稀有度 + 级别档 唯一；
+                   每日次数上限加成与 SU 激活码权限由该表 + 配置推导）
 
 约定：沿用全插件统一的 user_uid_mapping 外键级联；连接按次创建，
 写操作经 run_in_executor 包装为 async（同旧版 fishing / chongwu）。
@@ -175,6 +177,17 @@ class FishDB:
                 first_caught_time INTEGER NOT NULL,
                 updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (uid, species_id),
+                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fish_collection_rewards (
+                uid INTEGER NOT NULL,
+                rarity TEXT NOT NULL,
+                grade TEXT NOT NULL,
+                claimed_time INTEGER NOT NULL,
+                PRIMARY KEY (uid, rarity, grade),
                 FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
             )
         ''')
@@ -620,3 +633,45 @@ class FishDB:
             return [dict(row) for row in rows]
 
         return await asyncio.get_event_loop().run_in_executor(None, _query)
+
+    # ===== 图鉴奖励领取记录 =====
+
+    @classmethod
+    async def get_claimed_rewards(cls, uid: int) -> list[tuple[str, str]]:
+        """已领取的 (稀有度, 级别档) 列表"""
+        cls.init_fish_database()
+
+        def _query():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT rarity, grade FROM fish_collection_rewards'
+                ' WHERE uid = ? ORDER BY claimed_time',
+                (uid,),
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [(row["rarity"], row["grade"]) for row in rows]
+
+        return await asyncio.get_event_loop().run_in_executor(None, _query)
+
+    @classmethod
+    async def add_claimed_reward(cls, uid: int, rarity: str, grade: str) -> bool:
+        """记录一档奖励已领取；返回是否本次写入（False = 之前已领取，
+        供领取流程防止并发重复发放）"""
+        cls.init_fish_database()
+
+        def _add():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO fish_collection_rewards'
+                ' (uid, rarity, grade, claimed_time) VALUES (?, ?, ?, ?)',
+                (uid, rarity, grade, _now()),
+            )
+            inserted = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return inserted
+
+        return await asyncio.get_event_loop().run_in_executor(None, _add)

@@ -562,10 +562,17 @@ get_code_cmd = on_command("获取激活码", aliases={"注册激活码"}, priori
 @get_code_cmd.handle()
 async def handle_get_code(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     fs_data = await get_feisheng_data(uid)
-    
+
+    # 已飞升，或领取过含 SU激活码权限 的图鉴奖励（神话 X 档）均可使用
     if not fs_data["is_ascended"]:
-        await get_code_cmd.finish("你尚未飞升，无法获取激活码！\n请继续努力修炼。")
-        
+        from ..fish.service import FishService
+
+        if not await FishService.su_code_unlocked(uid):
+            await get_code_cmd.finish(
+                "你尚未飞升，无法获取激活码！\n请继续努力修炼。\n"
+                "（图鉴神话档奖励全部领取后也可解锁本指令）"
+            )
+
     code = await generate_su_code(uid)
     if not code:
         await get_code_cmd.finish("激活码获取失败，请稍后再试。")

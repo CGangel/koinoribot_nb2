@@ -10,8 +10,12 @@
 = 基础空军率 - 总幸运值）、钓鱼商店（鱼竿/鱼线带耐久与幸运值，鱼饵
 一次性；非鱼饵商品限购一次，商品名称不可通过配置修改）、幸运宝珠
 （能量满触发幸运暴击：只出史诗及以上、A 级及以上的鱼并获得幸运加
-成；升级花幸运币）、水族箱槽位扩展（5 → 10，价格指数递增）。
-品种表、商店商品表、各级别权重均可在配置面板增删改；
+成；升级花幸运币）、水族箱槽位扩展（5 → 10，价格指数递增）、图鉴
+奖励（每稀有度 6 档共 30 档，奖励目录面板可改，见 fish_collection_
+rewards）。
+品种表可在配置面板增删改；渔具/鱼饵商品表、稀有度权重、级别区间与
+图鉴奖励档位的条目固定（键不可增删改，只能改各自属性，面板与
+update_config 双重强制）；
 钓鱼响应中的图片以合并转发消息发送（品种 art 为空时发纯文本）；
 帮助/商店/图鉴等长文本同样以伪造合并转发发送，避免刷屏。
 具体玩法数值与美术资源待补充（见 config_store / fish_config 的 TODO 标记）。
@@ -300,7 +304,9 @@ HELP_TEXT = """【钓鱼玩法】
 
 ==图鉴==
   鱼类图鉴 —— 呼出图鉴
-听说集齐图鉴会有好事发生..
+  查看图鉴奖励 —— 查看 30 档图鉴奖励与领取状态
+  领取图鉴奖励 —— 一次性领取全部达标的图鉴奖励
+每个稀有度全收集且全部级别达标即解锁一档奖励，集齐会有好事发生..
 
 ==水族箱==
   查看水族箱 —— 呼出水族箱面板
@@ -778,12 +784,17 @@ collection_cmd = on_command(
 HIDDEN_RARITIES = ("传说", "神话")
 
 
-def build_collection_text(species: dict, rows: list, two_column: bool = False) -> str:
+def build_collection_text(
+    species: dict, rows: list, two_column: bool = False, tail: str = ""
+) -> str:
     """图鉴全文：===稀有度=== 分组，组间空行。
 
     每行「鱼名 级别 长度cm」（图鉴口径的历史最大）或「鱼名 未钓到」；
     传说/神话档的鱼在解锁前不显示名称（??? 未钓到）。
     species 需已按稀有度排序（species_table() 的输出即如此）。
+
+    tail 为末尾附加文本（如图鉴奖励领取提醒）；two_column=True 时排进
+    右列末尾（官Bot 转图片时提醒贴近右栏底部，不占左栏图鉴内容）。
 
     two_column=True 时排成左右两列（官Bot 转图片时图片更矮）：
     左列 普通/稀有/史诗，右列 传说/神话；行内以制表符分列，由官Bot
@@ -807,8 +818,12 @@ def build_collection_text(species: dict, rows: list, two_column: bool = False) -
                 f"{sp['name']} {row['max_grade']}级 {_fmt_len(row['max_length'])}cm"
             )
 
+    tail_lines = [line for line in tail.split("\n") if line.strip()] if tail else []
     if not two_column:
-        return "\n\n".join("\n".join(s) for s in sections.values())
+        text = "\n\n".join("\n".join(s) for s in sections.values())
+        if tail_lines:
+            text += "\n\n" + "\n".join(tail_lines)
+        return text
 
     left = (
         sections.get("普通", []) + [""]
@@ -816,6 +831,8 @@ def build_collection_text(species: dict, rows: list, two_column: bool = False) -
         + sections.get("史诗", [])
     )
     right = sections.get("传说", []) + [""] + sections.get("神话", [])
+    if tail_lines:
+        right = right + [""] + tail_lines
     # 左右列以制表符分隔：官Bot 图片渲染器把右列固定画在画布中线，
     # 像素级对齐（渲染字体非严格等宽，空格补位无法精确对位）
     return "\n".join(
@@ -832,10 +849,105 @@ async def handle_collection(
     uid: int = Depends(get_uid),
 ) -> None:
     rows = await FishDB.get_collection(uid)
+    # 有可领取的图鉴奖励时在末尾提醒（官Bot 双列模式下排进右列末尾）
+    tail = ""
+    claimable = await FishService.claimable_reward_count(uid)
+    if claimable:
+        tail = (
+            f"你有 {claimable} 档图鉴奖励可领取！\n"
+            "发送 查看图鉴奖励 查看\n"
+            "发送 领取图鉴奖励 一次性领取"
+        )
     text = build_collection_text(
-        species_table(), rows, two_column=_is_qqbot_event(event)
+        species_table(), rows, two_column=_is_qqbot_event(event), tail=tail
     )
     await _finish_as_forward(collection_cmd, event, bot, text)
+
+
+# ===== 图鉴奖励 =====
+# 每个稀有度 6 档（全收集且全部级别 ≥ D/C/B/A/S/X），共 30 档；
+# 奖励目录可在配置面板热更新（fish_collection_rewards）。
+reward_view_cmd = on_command(
+    "查看图鉴奖励", aliases={"图鉴奖励"}, priority=5, block=True
+)
+
+claim_reward_cmd = on_command(
+    "领取图鉴奖励", aliases={"领取图鉴奖励"}, priority=5, block=True
+)
+
+
+def build_reward_list_text(
+    states: dict, collected: dict, two_column: bool = False
+) -> str:
+    """图鉴奖励列表：===稀有度=== 分组，档位行「D：奖励内容（状态）」。
+
+    状态标注：可领取 / 已领取（未达成不标注）；传说/神话在对应稀有度
+    未全收集（未达 D 档）时奖励内容显示 ???。
+    two_column=True 时左右两列（左 普通/稀有/史诗，右 传说/神话），
+    制表符分列交由官Bot 图片渲染器对齐（同图鉴）。
+    """
+    rewards = C.collection_rewards()
+    sections: dict[str, list[str]] = {}
+    for rarity in C.RARITY_ORDER:
+        lines = [f"==={rarity}==="]
+        hide = rarity in HIDDEN_RARITIES and not collected.get(rarity)
+        for grade in C.GRADE_ORDER:
+            if hide:
+                content = "???"
+            else:
+                items = rewards.get(f"{rarity}:{grade}", [])
+                content = "、".join(
+                    t for t in (C.reward_item_display(i) for i in items) if t
+                ) or "无"
+            state = states[rarity][grade]
+            mark = {"claimable": "（可领取）",
+                    "claimed": "（已领取）"}.get(state, "")
+            lines.append(f"{grade}：{content}{mark}")
+        sections[rarity] = lines
+
+    if not two_column:
+        return "\n\n".join("\n".join(lines) for lines in sections.values())
+
+    left = (
+        sections["普通"] + [""] + sections["稀有"] + [""] + sections["史诗"]
+    )
+    right = sections["传说"] + [""] + sections["神话"]
+    return "\n".join(
+        (left[i] if i < len(left) else "") + "\t"
+        + (right[i] if i < len(right) else "")
+        for i in range(max(len(left), len(right)))
+    )
+
+
+@reward_view_cmd.handle()
+async def handle_reward_view(
+    bot: Bot,
+    event: Event,
+    uid: int = Depends(get_uid),
+) -> None:
+    info = await FishService.collection_reward_states(uid)
+    text = build_reward_list_text(
+        info["states"], info["collected"], two_column=_is_qqbot_event(event)
+    )
+    text = (
+        "每个稀有度全收集且全部级别达标即解锁对应档位奖励：\n" + text
+        + "\n\n发送 领取图鉴奖励 一次性领取全部可领取档位"
+    )
+    await _finish_as_forward(reward_view_cmd, event, bot, text, width=1000)
+
+
+@claim_reward_cmd.handle()
+async def handle_claim_reward(uid: int = Depends(get_uid)) -> None:
+    result = await FishService.claim_collection_rewards(uid)
+    if result["count"] == 0:
+        await claim_reward_cmd.finish(
+            "当前没有可领取的图鉴奖励~\n"
+            "发送 查看图鉴奖励 查看各档位的解锁条件"
+        )
+    lines = [f"领取了 {result['count']} 档图鉴奖励："]
+    for item in result["results"]:
+        lines.append(f"【{item['rarity']}·{item['grade']}档】{item['text']}")
+    await claim_reward_cmd.finish("\n".join(lines))
 
 
 # ===== 水族箱 =====

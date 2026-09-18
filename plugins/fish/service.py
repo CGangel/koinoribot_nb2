@@ -20,7 +20,9 @@ from .fish_config import (
     bait_rarity_weights,
     bait_table,
     calc_sell_price,
+    collection_rewards,
     grade_range,
+    grade_rank,
     grade_weights,
     growth_rate_multiplier,
     line_table,
@@ -716,3 +718,158 @@ class FishService:
         await FishDB.save_player(player)
         return {"ok": True, "enabled": bool(player["auto_sell"]),
                 "threshold": C.auto_sell_threshold()}
+
+    # ===== 图鉴奖励 =====
+    # 每个稀有度各 6 档（D/C/B/A/S/X）：该稀有度全部品种收集齐、且全部
+    # 品种的历史最大级别都 ≥ 档位级别时可领取该档；领取记录落库后，
+    # fish_limit（每日次数加成）与 获取激活码（SU 权限）按 记录+当前配置 推导。
+
+    @classmethod
+    async def collection_reward_states(cls, uid: int) -> dict:
+        """全部档位的领取状态与各稀有度收集情况。
+
+        返回 {"states": {稀有度: {级别档: "claimable"|"claimed"|"locked"}},
+              "collected": {稀有度: 是否全品种已收集}}；
+        collected 用于 传说/神话 档奖励内容的显示门槛（未全收集显示 ???）。
+        """
+        species = species_table()
+        stats = {row["species_id"]: row
+                 for row in await FishDB.get_collection(uid)}
+        claimed = set(await FishDB.get_claimed_rewards(uid))
+
+        states: dict[str, dict[str, str]] = {}
+        collected: dict[str, bool] = {}
+        for rarity in RARITY_ORDER:
+            ids = [sid for sid, sp in species.items() if sp["rarity"] == rarity]
+            if ids and all(sid in stats for sid in ids):
+                collected[rarity] = True
+                min_rank = min(grade_rank(stats[sid]["max_grade"]) for sid in ids)
+            else:
+                collected[rarity] = False
+                min_rank = -1
+            grade_states = {}
+            for grade in GRADE_ORDER:
+                if min_rank >= grade_rank(grade):
+                    grade_states[grade] = (
+                        "claimed" if (rarity, grade) in claimed else "claimable"
+                    )
+                else:
+                    grade_states[grade] = "locked"
+            states[rarity] = grade_states
+        return {"states": states, "collected": collected}
+
+    @classmethod
+    async def claimable_reward_count(cls, uid: int) -> int:
+        """当前可领取的档数（图鉴尾部提醒用）"""
+        info = await cls.collection_reward_states(uid)
+        return sum(
+            1
+            for grades in info["states"].values()
+            for state in grades.values()
+            if state == "claimable"
+        )
+
+    @classmethod
+    async def _grant_reward_item(cls, uid: int, item: dict) -> str | None:
+        """发放单项奖励，返回展示文本。
+
+        已拥有的非消耗品（鱼竿/鱼线/宝珠/氧气泵）按售价等额折算为该商品
+        的计价货币（鱼竿/鱼线/氧气泵为幸运币，宝珠为金币）；商品 id 已被
+        配置删除时返回 None（不发放）。
+        """
+        wallet = money.of(uid)
+        rtype = item["type"]
+        count = int(item.get("count", 1))
+
+        if rtype == "gold":
+            wallet.gold += count
+            return f"金币×{count}"
+        if rtype == "luckygold":
+            wallet.luckygold += count
+            return f"幸运币×{count}"
+        if rtype == "kirastone":
+            wallet.kirastone += count
+            return f"宝石×{count}"
+        if rtype == "bait":
+            bait = bait_table().get(item.get("id", ""))
+            if bait is None:
+                return None
+            await FishDB.add_bait(uid, item["id"], count)
+            return f"{bait['name']}×{count}"
+        if rtype in ("rod", "line"):
+            table = rod_table() if rtype == "rod" else line_table()
+            gear = table.get(item.get("id", ""))
+            if gear is None:
+                return None
+            owned = any(g["gear_id"] == item["id"]
+                        for g in await FishDB.list_gear(uid, rtype))
+            if owned:
+                wallet.luckygold += gear["price"]
+                return f"{gear['name']}（已拥有，折算 幸运币×{gear['price']}）"
+            await FishDB.add_gear(uid, rtype, item["id"],
+                                  gear["durability"] or 1)
+            return f"{gear['name']}×1"
+        if rtype == "orb":
+            orb = orb_info()
+            player = await cls.ensure_player(uid)
+            if player["orb_owned"]:
+                wallet.gold += orb["price"]
+                return f"{orb['name']}（已拥有，折算 金币×{orb['price']}）"
+            player["orb_owned"] = 1
+            player["orb_equipped"] = 1
+            await FishDB.save_player(player)
+            return f"{orb['name']}×1"
+        if rtype == "pump":
+            pump = pump_info()
+            player = await cls.ensure_player(uid)
+            if player["pump_owned"]:
+                wallet.luckygold += pump["price"]
+                return f"{pump['name']}（已拥有，折算 幸运币×{pump['price']}）"
+            player["pump_owned"] = 1
+            await FishDB.save_player(player)
+            return f"{pump['name']}×1"
+        if rtype == "fish_limit":
+            return f"每日钓鱼次数上限+{count}"
+        if rtype == "su_code":
+            return "SU激活码获取权限（发送 获取激活码 使用）"
+        return None
+
+    @classmethod
+    async def claim_collection_rewards(cls, uid: int) -> dict:
+        """领取全部可领取的图鉴奖励（先落领取记录再发放，防重复发放）。
+
+        返回 {"count": 领取档数, "results": [{"rarity", "grade", "text"}, ...]}。
+        """
+        info = await cls.collection_reward_states(uid)
+        rewards = collection_rewards()
+        results = []
+        for rarity in RARITY_ORDER:
+            for grade in GRADE_ORDER:
+                if info["states"][rarity][grade] != "claimable":
+                    continue
+                items = rewards.get(f"{rarity}:{grade}", [])
+                if not items:
+                    continue
+                if not await FishDB.add_claimed_reward(uid, rarity, grade):
+                    continue    # 并发领取：记录已存在，跳过发放
+                grants = []
+                for item in items:
+                    text = await cls._grant_reward_item(uid, item)
+                    if text:
+                        grants.append(text)
+                results.append({
+                    "rarity": rarity,
+                    "grade": grade,
+                    "text": "、".join(grants) if grants else "无",
+                })
+        return {"count": len(results), "results": results}
+
+    @classmethod
+    async def su_code_unlocked(cls, uid: int) -> bool:
+        """是否领取过含 SU激活码权限 的图鉴奖励档位（获取激活码 指令门槛）"""
+        rewards = collection_rewards()
+        for rarity, grade in await FishDB.get_claimed_rewards(uid):
+            for item in rewards.get(f"{rarity}:{grade}", []):
+                if item.get("type") == "su_code":
+                    return True
+        return False

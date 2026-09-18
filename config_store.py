@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import secrets
@@ -148,11 +149,122 @@ _FISH_BAITS_DEFAULT: dict = {
                                       "传说": 1.2, "神话": 0.6}},
 }
 
-# 钓鱼商店商品名称不可通过热更新修改/删除（只能改属性与价格；新增商品可带新名称）
+# 图鉴奖励目录：键 "稀有度:级别档"（每个稀有度 6 档 D/C/B/A/S/X，共 30 档，
+# 档位键固定不可增删改），值为 {"奖励": {奖励键: 数量}}——外层「奖励」包裹
+# 使面板二级子页以嵌套键值块渲染，可自由增删改单项与配置多项奖励：
+#   预留键：gold 金币 / luckygold 幸运币 / kirastone 宝石 / orb 幸运宝珠 /
+#           pump 氧气泵 / fish_limit 每日钓鱼次数上限 / su_code SU激活码获取权限
+#   商品键：钓鱼商店商品 id（鱼饵/鱼竿/鱼线），类型按所在表自动推导
+# 非消耗品（orb/pump/su_code/鱼竿/鱼线）数量强制 1（读取层规范化兜底）；
+# 鱼竿/鱼线/宝珠/氧气泵发放时若已拥有则按售价折算为对应货币。
+_FISH_COLLECTION_REWARDS_DEFAULT: dict = {
+    "普通:D": {"奖励": {"gold": 10000}},
+    "普通:C": {"奖励": {"bait_worm": 200}},
+    "普通:B": {"奖励": {"rod_fiberglass": 1}},
+    "普通:A": {"奖励": {"luckygold": 20}},
+    "普通:S": {"奖励": {"rod_carbon": 1}},
+    "普通:X": {"奖励": {"luckygold": 40}},
+    "稀有:D": {"奖励": {"gold": 50000}},
+    "稀有:C": {"奖励": {"bait_shrimp": 100}},
+    "稀有:B": {"奖励": {"line_nylon": 1}},
+    "稀有:A": {"奖励": {"luckygold": 30}},
+    "稀有:S": {"奖励": {"line_braided": 1}},
+    "稀有:X": {"奖励": {"luckygold": 60}},
+    "史诗:D": {"奖励": {"gold": 100000}},
+    "史诗:C": {"奖励": {"bait_lucky": 100}},
+    "史诗:B": {"奖励": {"pump": 1}},
+    "史诗:A": {"奖励": {"luckygold": 40}},
+    "史诗:S": {"奖励": {"fish_limit": 5}},
+    "史诗:X": {"奖励": {"luckygold": 80}},
+    "传说:D": {"奖励": {"gold": 500000}},
+    "传说:C": {"奖励": {"bait_lucky": 200}},
+    "传说:B": {"奖励": {"rod_master": 1}},
+    "传说:A": {"奖励": {"luckygold": 50}},
+    "传说:S": {"奖励": {"line_dragon": 1}},
+    "传说:X": {"奖励": {"luckygold": 100}},
+    "神话:D": {"奖励": {"gold": 2000000}},
+    "神话:C": {"奖励": {"bait_lucky": 400}},
+    "神话:B": {"奖励": {"fish_limit": 5}},
+    "神话:A": {"奖励": {"luckygold": 60}},
+    "神话:S": {"奖励": {"fish_limit": 10}},
+    "神话:X": {"奖励": {"su_code": 1}},
+}
+
+# 稀有度基准权重 / 级别长度区间的内置默认（键即稀有度/级别名，
+# 固定不可增删改——面板与 update_config 双重强制）
+_FISH_RARITY_WEIGHTS_DEFAULT: dict = {"普通": 65, "稀有": 29, "史诗": 5.75,
+                                      "传说": 0.25, "神话": 0}
+_FISH_GRADE_RANGES_DEFAULT: dict = {"D": [1.0, 1.2], "C": [1.2, 1.4],
+                                    "B": [1.4, 1.6], "A": [1.6, 1.9],
+                                    "S": [1.9, 2.2], "X": [2.2, 3.0]}
+
+# 条目（键）固定的集合配置：渔具/鱼饵商品表、稀有度权重、级别区间、
+# 图鉴奖励档位——键不可新增/删除/改名，只能改各自属性；update_config
+# 强制保留内置默认键集，面板同侧禁用增删改键入口。
+_FIXED_ENTRY_FIELDS: dict[str, dict] = {
+    "fish_shop_rods": _FISH_RODS_DEFAULT,
+    "fish_shop_lines": _FISH_LINES_DEFAULT,
+    "fish_shop_baits": _FISH_BAITS_DEFAULT,
+    "fish_rarity_weights": _FISH_RARITY_WEIGHTS_DEFAULT,
+    "fish_grade_ranges": _FISH_GRADE_RANGES_DEFAULT,
+    "fish_collection_rewards": _FISH_COLLECTION_REWARDS_DEFAULT,
+}
+
+# 钓鱼商店商品名称不可通过热更新修改（只能改属性与价格）；条目本身的
+# 增删由 _FIXED_ENTRY_FIELDS 一并锁定（渔具/鱼饵目录固定）
 # 幸运宝珠为唯一单件装备（存 owned 标记而非条目 id），改名不影响已有数据，故不锁定
 _SHOP_NAME_LOCKED_FIELDS = (
     "fish_shop_rods", "fish_shop_lines", "fish_shop_baits",
 )
+
+# 商店条目内嵌权重块的固定键集：鱼竿级别概率（D/C/B/A/S/X）与鱼饵
+# 稀有度概率（5 档稀有度）——键即级别/稀有度名，不可增删改名，只能改
+# 权重数值；update_config 强制保留键集，面板同侧禁用增删改键入口。
+# 内层字典的值仅为异常数据补回时的兜底权重（0）。
+_FIXED_NESTED_KEYS: dict[str, dict[str, dict[str, float]]] = {
+    "fish_shop_rods": {
+        "grade_weights": {grade: 0.0 for grade in _FISH_GRADE_RANGES_DEFAULT},
+    },
+    "fish_shop_baits": {
+        "rarity_weights": {rarity: 0.0
+                           for rarity in _FISH_RARITY_WEIGHTS_DEFAULT},
+    },
+}
+
+# 图鉴奖励的奖励键下拉选项：预留键（中文标签）+ 商店商品 id（标签带
+# 类别前缀与商品名，如「鱼饵·秘制鱼饵」）；面板「奖励」块内以下拉选择
+_FISH_REWARD_RESERVED_CHOICES: list[tuple[str, str]] = [
+    ("gold", "金币"),
+    ("luckygold", "幸运币"),
+    ("kirastone", "宝石"),
+    ("orb", "幸运宝珠"),
+    ("pump", "氧气泵"),
+    ("fish_limit", "每日钓鱼次数上限"),
+    ("su_code", "SU激活码获取权限"),
+]
+
+
+def _fish_reward_key_choices() -> list[dict[str, str]]:
+    """奖励键下拉选项 [{value, label}]：预留键 + 当前商店商品"""
+    choices = [
+        {"value": value, "label": label}
+        for value, label in _FISH_REWARD_RESERVED_CHOICES
+    ]
+
+    def _add(table, prefix: str) -> None:
+        if not isinstance(table, dict):
+            return
+        for item_id, entry in table.items():
+            name = entry.get("name") if isinstance(entry, dict) else None
+            choices.append({
+                "value": str(item_id),
+                "label": f"{prefix}·{name or item_id}",
+            })
+
+    _add(config.fish_shop_baits, "鱼饵")
+    _add(config.fish_shop_rods, "鱼竿")
+    _add(config.fish_shop_lines, "鱼线")
+    return choices
 
 class KoinoribotConfig(BaseModel):
     """Koinoribot 全局配置（superusers 除外，见 passwd.py）"""
@@ -179,9 +291,8 @@ class KoinoribotConfig(BaseModel):
     bottle_salvage_starstone: int = 1000    # 捞 1 次漂流瓶需要的星星
 
     # ================== 新版钓鱼（fish） ==================
-    # 稀有度基准权重（键为稀有度名）；仅当某鱼饵未配置 rarity_weights 时回落使用
-    fish_rarity_weights: dict = {"普通": 65, "稀有": 29, "史诗": 5.75,
-                                 "传说": 0.25, "神话": 0}
+    # 稀有度基准权重（键为稀有度名，固定不可增删）；仅当某鱼饵未配置 rarity_weights 时回落使用
+    fish_rarity_weights: dict = _FISH_RARITY_WEIGHTS_DEFAULT
     # 品种表 {品种id: {name, rarity, base_price, base_length_cm, air_force_rate, art}}，
     # base_length_cm 为基准长度（D 级最小长度），base_price 为基准售价，
     # air_force_rate 为该品种的基础空军概率
@@ -228,13 +339,17 @@ class KoinoribotConfig(BaseModel):
     # 放生幸运币分档：[[售价下限, 幸运币], ...]，售价低于首档下限则不可放生
     fish_lucky_tiers: list = [[10000, 1], [50000, 2], [100000, 5], [1000000, 10]]
     # 级别长度区间系数 {级别: [lo, hi]}：长度 ∈ [基准×lo, 基准×hi)
-    fish_grade_ranges: dict = {"D": [1.0, 1.2], "C": [1.2, 1.4],
-                               "B": [1.4, 1.6], "A": [1.6, 1.9],
-                               "S": [1.9, 2.2], "X": [2.2, 3.0]}
+    # （键为级别名 D/C/B/A/S/X，固定不可增删）
+    fish_grade_ranges: dict = _FISH_GRADE_RANGES_DEFAULT
     # 每日最大钓鱼次数（等级 0 的 SU 不受限制；宠物技能/幸运转盘可加当日上限）
     fish_limit_count: int = 10
     # 自动出售阈值：开启自动出售后，成长到最大（可成长至）售价仍低于该值的鱼钓上即卖
     fish_auto_sell_threshold: int = 10000
+    # 图鉴奖励目录 {"稀有度:级别档": {"奖励": {奖励键: 数量}}}，共 30 档
+    # （档位键固定不可增删改）；奖励键为预留键（gold/luckygold/kirastone/
+    # orb/pump/fish_limit/su_code）或钓鱼商店商品 id；详见
+    # _FISH_COLLECTION_REWARDS_DEFAULT 注释
+    fish_collection_rewards: dict = _FISH_COLLECTION_REWARDS_DEFAULT
 
     # ================== 经济系统 ==================
     min_rest: int = 1000                    # 转账后最少剩余金币
@@ -295,6 +410,9 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "fish_sell_price_exponent", "fish_lucky_tiers",
         "fish_auto_sell_threshold",
     ],
+    "钓鱼·图鉴奖励": [
+        "fish_collection_rewards",
+    ],
     "钓鱼·品种与稀有度": [
         "fish_rarity_weights", "fish_species",
         "fish_grade_ranges",
@@ -352,12 +470,12 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "bottle_craft_starstone": "合成 1 个漂流瓶需要的星星",
     "bottle_salvage_starstone": "捞 1 次漂流瓶需要的星星",
     # 新版钓鱼
-    "fish_rarity_weights": "稀有度基准权重（仅当某鱼饵未配置 rarity_weights 时回落使用）；键为稀有度名（普通/稀有/史诗/传说/神话）",
+    "fish_rarity_weights": "稀有度基准权重（键为固定 5 档稀有度名：普通/稀有/史诗/传说/神话，不可增删改）；仅当某鱼饵未配置 rarity_weights 时回落使用",
     "fish_species": "鱼品种表：{品种id: {name, rarity, base_price, base_length_cm, air_force_rate, art}}；base_length_cm 为基准长度（D 级最小长度，决定各级长度区间），base_price 为基准售价，air_force_rate 为基础空军概率（最终空军率 = 基础空军率 - 总幸运值，下限 0）；可在此新增/删除品种",
-    "fish_shop_rods": "鱼竿商品表：{id: {name, price, desc, durability, repair_price, grade_weights}}；grade_weights 为级别概率 {D/C/B/A/S/X}（只影响级别，级别越高鱼越长）；durability 填 null 表示无耐久（如初始鱼竿）；可新增/删除（名称不可改）",
-    "fish_shop_lines": "鱼线商品表：{id: {name, price, desc, durability, repair_price, luck}}；luck 为幸运值（百分点），用于抵消品种基础空军率，只影响空军概率；可新增/删除（名称不可改）",
-    "fish_shop_baits": "鱼饵商品表：{id: {name, price, desc, unlimited, rarity_weights}}；rarity_weights 为稀有度概率 {普通/稀有/史诗/传说/神话}（只影响稀有度）；unlimited 填 true 表示无限使用（初始鱼饵）；其余为一次性用品，每次钓鱼消耗 1 个；可新增/删除（名称不可改）",
-    "fish_grade_ranges": "各级别的长度区间系数 {级别: [lo, hi]}：长度 = 基准长度 × 区间随机（D 从 ×1.0 起，各级首尾相接；修改会影响所有鱼的取长）",
+    "fish_shop_rods": "鱼竿商品表：{id: {name, price, desc, durability, repair_price, grade_weights}}；grade_weights 为级别概率 {D/C/B/A/S/X}（只影响级别，级别越高鱼越长）；durability 填 null 表示无耐久（如初始鱼竿）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_lines": "鱼线商品表：{id: {name, price, desc, durability, repair_price, luck}}；luck 为幸运值（百分点），用于抵消品种基础空军率，只影响空军概率；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_baits": "鱼饵商品表：{id: {name, price, desc, unlimited, rarity_weights}}；rarity_weights 为稀有度概率 {普通/稀有/史诗/传说/神话}（只影响稀有度）；unlimited 填 true 表示无限使用（初始鱼饵）；其余为一次性用品，每次钓鱼消耗 1 个；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_grade_ranges": "各级别的长度区间系数 {级别: [lo, hi]}：长度 = 基准长度 × 区间随机（D 从 ×1.0 起，各级首尾相接；修改会影响所有鱼的取长）；键为固定 6 级 D/C/B/A/S/X，不可增删改",
     "fish_sell_price_exponent": "售价指数：售价 = 基准售价 × 指数^(出售时长度 / 基准长度)；越大则养大后越值钱",
     "fish_lucky_tiers": "放生幸运币分档：[[售价下限, 幸运币], ...]；售价低于首档下限的鱼不可放生（默认 1万→1、5万→2、10万→5、100万→10）",
     "fish_cast_cd": "单次钓鱼冷却（秒）",
@@ -380,6 +498,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "fish_growth_cap_factor": "水族箱成长上限系数：可成长至 = 钓获时长度 × 该系数（默认 1.5；小于 1 按 1 处理）",
     "fish_limit_count": "每人每日最大钓鱼次数（等级 0 的 SU 不受限制；宠物技能/幸运转盘可加当日上限）",
     "fish_auto_sell_threshold": "自动处理阈值：开启自动处理后，成长到最大（可成长至）售价仍低于该金币数的鱼自动卖出，其余自动放入水族箱（水族箱满时交由玩家处理）",
+    "fish_collection_rewards": "图鉴奖励目录：{稀有度:级别档: {奖励: {奖励键: 数量}}}；档位键固定（每稀有度 D/C/B/A/S/X 共 6 档、5 稀有度共 30 档，不可增删改），进入条目后在「奖励」块内增删改行即可调整奖励内容，单档可含多项；奖励键可用预留键 gold 金币/luckygold 幸运币/kirastone 宝石/orb 幸运宝珠/pump 氧气泵/fish_limit 每日钓鱼次数上限/su_code SU激活码获取权限，或钓鱼商店商品 id（鱼饵/鱼竿/鱼线，类型自动推导）；非消耗品（orb/pump/su_code/鱼竿/鱼线）数量强制 1；奖励发放时若已拥有该非消耗品按售价折算为对应货币；fish_limit 与 su_code 在领取后永久生效；档位解锁条件：该稀有度全部品种收集且全部品种级别 ≥ 档位",
     # 经济系统
     "min_rest": "转账后账户最少需保留的金币",
     "dibao": "低保金额，贫穷时可以领取",
@@ -532,6 +651,71 @@ def update_config(updates: dict[str, Any]) -> list[str]:
             if entry.get("name") != old_name:
                 new_table[item_id] = {**entry, "name": old_name}
 
+    # 条目固定的集合配置（渔具/鱼饵商品表、稀有度权重、级别区间、图鉴
+    # 奖励档位）：丢弃新增键、补回被删键（保留现行属性值），键不可增删改
+    for key, default_table in _FIXED_ENTRY_FIELDS.items():
+        if key not in updates or not isinstance(updates[key], dict):
+            continue
+        old_table = getattr(config, key) or {}
+        new_table = {
+            entry_key: value for entry_key, value in updates[key].items()
+            if entry_key in default_table
+        }
+        for fixed_key, default_value in default_table.items():
+            if fixed_key not in new_table:
+                # 深拷贝补回，避免后续处理原地改动现行配置对象
+                new_table[fixed_key] = copy.deepcopy(
+                    old_table.get(fixed_key, default_value)
+                )
+        updates[key] = new_table
+
+    # 商店条目内嵌权重块的键固定（鱼竿级别概率 D/C/B/A/S/X、鱼饵稀有度
+    # 概率 5 档）：丢弃新增/改名键、补回被删键（保留现行权重值），
+    # 只能改权重数值
+    for key, nested_specs in _FIXED_NESTED_KEYS.items():
+        if key not in updates or not isinstance(updates[key], dict):
+            continue
+        old_table = getattr(config, key) or {}
+        for entry_key, entry in updates[key].items():
+            if not isinstance(entry, dict):
+                continue
+            old_entry = old_table.get(entry_key)
+            for nested_key, fixed_keys in nested_specs.items():
+                sub = entry.get(nested_key)
+                if not isinstance(sub, dict):
+                    continue
+                old_sub = (
+                    old_entry.get(nested_key)
+                    if isinstance(old_entry, dict) else None
+                )
+                old_sub = old_sub if isinstance(old_sub, dict) else {}
+                merged = {
+                    sub_key: value for sub_key, value in sub.items()
+                    if sub_key in fixed_keys
+                }
+                for fixed_key, fallback in fixed_keys.items():
+                    if fixed_key not in merged:
+                        merged[fixed_key] = old_sub.get(fixed_key, fallback)
+                entry[nested_key] = merged
+
+    # 图鉴奖励：数量统一转 int（客户端可能提交数字字符串），非法值丢弃
+    if "fish_collection_rewards" in updates and isinstance(
+        updates["fish_collection_rewards"], dict
+    ):
+        for tier, value in updates["fish_collection_rewards"].items():
+            if not isinstance(value, dict):
+                continue
+            block = value.get("奖励")
+            if not isinstance(block, dict):
+                continue
+            cleaned: dict = {}
+            for reward_key, count in block.items():
+                try:
+                    cleaned[reward_key] = int(count)
+                except (TypeError, ValueError):
+                    continue
+            value["奖励"] = cleaned
+
     try:
         new_model = KoinoribotConfig.model_validate(
             {**config.model_dump(), **updates}
@@ -552,7 +736,9 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
     """生成面板数据：分区字段列表（含类型、中文说明与打码值）。
 
     dict 字段额外携带 entry_count（条目数）与 collection（是否为集合
-    配置：嵌套 dict 或条目超过 12 项，面板为其提供二级编辑子页）。
+    配置：嵌套 dict 或条目超过 12 项，面板为其提供二级编辑子页）；
+    条目固定的字段带 fixed_entries，内嵌权重块固定的字段带
+    locked_nested_keys，奖励类字段带 nested_choices（下拉选项）。
     """
     dump = config.model_dump()
     sections: dict[str, list[dict[str, Any]]] = {}
@@ -568,6 +754,8 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
                 "type": getattr(annotation, "__name__", str(annotation)),
                 "value": value if (not secret or reveal) else mask_value(value),
                 "masked": secret and not reveal,
+                # 条目固定（键不可增删改）：面板据此禁用键编辑与增删入口
+                "fixed_entries": name in _FIXED_ENTRY_FIELDS,
             }
             if isinstance(value, dict):
                 item["entry_count"] = len(value)
@@ -575,6 +763,13 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
                     any(isinstance(v, dict) for v in value.values())
                     or len(value) > 12
                 )
+                locked_nested = _FIXED_NESTED_KEYS.get(name)
+                if locked_nested:
+                    item["locked_nested_keys"] = sorted(locked_nested)
+                if name == "fish_collection_rewards":
+                    item["nested_choices"] = {
+                        "奖励": _fish_reward_key_choices(),
+                    }
             items.append(item)
         sections[section] = items
     return {"sections": sections}
@@ -631,6 +826,29 @@ def _migrate_legacy_file(path: Path) -> list[int]:
 
 # 字段改名映射：旧键的值在 stale 清理前迁入新键（避免被当废弃行删除）
 _KEY_RENAMES: dict[str, str] = {"qqbot_reply_quote": "reply_quote"}
+
+
+def _migrate_fish_collection_rewards() -> None:
+    """旧版图鉴奖励扁平格式（{档位: {奖励键: 数量}}）升级为面板二级子页
+    可编辑的嵌套格式（{档位: {奖励: {...}}}）；已是嵌套格式时不动作。"""
+    raw = config.fish_collection_rewards
+    if not isinstance(raw, dict):
+        return
+    wrapped: dict = {}
+    changed = False
+    for key, value in raw.items():
+        if isinstance(value, dict) and "奖励" not in value:
+            wrapped[key] = {"奖励": dict(value)}
+            changed = True
+        else:
+            wrapped[key] = value
+    if not changed:
+        return
+    try:
+        update_config({"fish_collection_rewards": wrapped})
+        logger.info("[config_store] 图鉴奖励配置已迁移为嵌套格式（奖励内容可在面板编辑）")
+    except ValueError as e:
+        logger.error(f"[config_store] 图鉴奖励配置格式迁移失败: {e}")
 
 
 def _rename_legacy_keys(conn) -> None:
@@ -694,6 +912,8 @@ def init_config_store(
         migrated_superusers = _migrate_legacy_file(legacy_path)
 
     loaded = _load_from_db()
+    # 图鉴奖励旧扁平格式 → 面板可编辑嵌套格式（升级后首次启动执行）
+    _migrate_fish_collection_rewards()
     logger.info(f"[config_store] 配置加载完成：{loaded} 项（数据库 {_db_path}）")
     return migrated_superusers
 
