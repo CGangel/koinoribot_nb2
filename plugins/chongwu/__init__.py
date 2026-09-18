@@ -32,7 +32,7 @@ from .pet import (
     get_user_items, add_user_item, use_user_item,
     get_pet_data, get_status_description, update_pet_status, check_pet_evolution
 )
-from ...su_manager import is_su
+from ...su_manager import is_su_contributor
 from ..fish.fish_limit import FishLimitManager
 from ...nickname import get_user_nickname
 from ...su_manager import get_excluded_su_uids
@@ -816,8 +816,8 @@ async def handle_pet_event(event: Event, bot: Bot, uid: int = Depends(get_uid)):
 
     last_event_date = _pet_event_date(pet.get("last_event_date"))
 
-    # 检查是否已经执行过今日事件（超级用户绕过）
-    if last_event_date and last_event_date == now_date and not is_su(uid):
+    # 检查是否已经执行过今日事件（等级 0 超级用户绕过）
+    if last_event_date and last_event_date == now_date and not is_su_contributor(uid):
         await pet_event_cmd.finish("今天已经触发过宠物事件了，请明天再来！")
 
     if not pet.get("skills"):
