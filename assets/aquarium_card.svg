@@ -1,24 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="544" height="178" viewBox="0 0 544 178">
-  <rect x="0" y="0" width="544" height="178" fill="#FFF6E9"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="578" height="178" viewBox="0 0 578 178">
+  <rect x="0" y="0" width="578" height="178" fill="#FFF6E9"/>
 
   <!-- ===== 表头带：水蓝横幅 + 底部深色条 + 装饰圆 ===== -->
-  <rect x="0" y="0" width="544" height="62" fill="#4FA3B8"/>
-  <rect x="0" y="62" width="544" height="5" fill="#4293A8"/>
-  <circle cx="474" cy="20" r="15" fill="#FFFFFF" opacity="0.14"/>
-  <circle cx="510" cy="44" r="9" fill="#FFFFFF" opacity="0.16"/>
-  <circle cx="438" cy="46" r="6" fill="#FFFFFF" opacity="0.16"/>
+  <rect x="0" y="0" width="578" height="62" fill="#4FA3B8"/>
+  <rect x="0" y="62" width="578" height="5" fill="#4293A8"/>
+  <circle cx="508" cy="20" r="15" fill="#FFFFFF" opacity="0.14"/>
+  <circle cx="544" cy="44" r="9" fill="#FFFFFF" opacity="0.16"/>
+  <circle cx="472" cy="46" r="6" fill="#FFFFFF" opacity="0.16"/>
 
   <!-- ===== 字段名条 ===== -->
-  <rect x="16" y="62" width="512" height="22"
+  <rect x="16" y="62" width="546" height="22"
         fill="#F6EEE0"/>
   <line x1="16" y1="83"
-        x2="528" y2="83"
+        x2="562" y2="83"
         stroke="#EFDCC4" stroke-width="1"/>
 
   <!-- ===== 一条数据行条（渲染时按条数纵向重复） ===== -->
-  <rect x="16" y="84" width="512" height="20"
+  <rect x="16" y="84" width="546" height="20"
         fill="#FFFCF6"/>
   <line x1="16" y1="103"
-        x2="528" y2="103"
+        x2="562" y2="103"
         stroke="#EFDCC4" stroke-width="1"/>
 </svg>

@@ -401,7 +401,7 @@ def orb_energy_cap(level: int) -> int:
         level = max(1, int(level))
     except (TypeError, ValueError):
         level = 1
-    base = _orb_int(config.fish_orb_energy_cap_base, 90)
+    base = _orb_int(config.fish_orb_energy_cap_base, 50)
     reduce = _orb_int(config.fish_orb_cap_reduce_per_level, 10, 0)
     return max(10, base - reduce * (level - 1))
 

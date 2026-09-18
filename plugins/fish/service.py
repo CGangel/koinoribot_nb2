@@ -665,7 +665,7 @@ class FishService:
     async def upgrade_orb(cls, uid: int) -> dict:
         """升级幸运宝珠（花幸运币）：价格 = 基础价 × 升级前等级。
 
-        每升 1 级能量上限 -10（1 级 90 → 5 级 50），最高 5 级；
+        每升 1 级能量上限 -10（1 级 50 → 5 级 10），最高 5 级；
         升级后能量超出新上限时截断到上限。
         """
         player = await cls.ensure_player(uid)

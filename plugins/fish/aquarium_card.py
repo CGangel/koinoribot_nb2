@@ -5,9 +5,10 @@
 生成），坐标/字号/列宽与配色集中在 ``assets/aquarium_card_slots.json``，
 本模块只把文本贴到固定坐标上——单一光栅化路径，字重/抗锯齿一致。
 
-**版面（单列）**：表头带（标题 + 槽位计数）+ 一行字段名（名称/稀有度/长度/
-售价/幸运值/成长所需时间）+ N 条数据行（每行一条鱼，竖向排序，最多 20 条）
-+ 表尾提示带（4 行：出售/放生单条、批量指令、氧气泵、扩展与占用概况）。
+**版面（单列）**：表头带（标题 + 槽位计数）+ 一行字段名（槽位/名称/稀有度/
+长度/售价/幸运值/成长所需时间）+ N 条数据行（每行一条鱼，竖向排序，最多
+20 条）+ 表尾提示带（4 行：出售/放生单条、批量指令、氧气泵、扩展与占用概况）。
+首列槽位编号即 水族箱卖出/水族箱放生 使用的编号（与文本面板一致）。
 底图分「表头带 / 字段名条 / 一条数据行条 / 表尾带」四段，渲染时按条数纵向
 重复行条，**不预留空行**；单列使卡片接近方形，不像双列那样扁长。
 
@@ -149,7 +150,8 @@ def build_row(
 ) -> dict:
     """把一条鱼整理成行文本（纯函数，便于单测与调用方复用）。
 
-    数值列统一 ``当前值(max: 上限)``；末列为按当前成长速率算出的剩余时长。
+    首列 slot 为水族箱槽位编号（卖出/放生指令同款，1 起）；数值列统一
+    ``当前值(max: 上限)``；末列为按当前成长速率算出的剩余时长。
     """
     maxed = length >= cap - 1e-6
     remain_seconds = (
@@ -157,6 +159,7 @@ def build_row(
         else max(0.0, cap - length) / growth_per_day * 86400
     )
     return {
+        "slot": str(slot),
         "tag": f"[{grade}]",
         "name": name,
         "rarity": rarity,
@@ -180,6 +183,8 @@ def _draw_data_row(draw, put, spec: dict, row: dict, top: float) -> None:
     def cell(key: str, text: str, color: str) -> None:
         put(base_x + columns[key], baseline, text, size, color, "lm")
 
+    # 槽位编号列：弱化色，读作行号
+    cell("slot", row["slot"], colors["label"])
     # 名称列：[等级] 用等级专属色，鱼名用正文色（两段拼接）
     name_x = base_x + columns["name"]
     put(name_x, baseline, row["tag"], size,

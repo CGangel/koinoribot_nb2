@@ -2,9 +2,9 @@
   "image": "aquarium_card.png",
   "scale": 2,
   "font": "HYWenHei-85W.ttf",
-  "w": 544,
+  "w": 578,
   "block_x": 16,
-  "block_w": 512,
+  "block_w": 546,
   "header_h": 62,
   "title_h": 22,
   "row_h": 20,
@@ -17,14 +17,16 @@
     "fade_steps": 4
   },
   "columns": {
-    "name": 0,
-    "rarity": 77,
-    "length": 122,
-    "price": 238,
-    "lucky": 357,
-    "time": 426
+    "slot": 0,
+    "name": 34,
+    "rarity": 111,
+    "length": 156,
+    "price": 272,
+    "lucky": 391,
+    "time": 460
   },
   "column_order": [
+    "slot",
     "name",
     "rarity",
     "length",
@@ -33,6 +35,7 @@
     "time"
   ],
   "column_labels": {
+    "slot": "槽位",
     "name": "名称",
     "rarity": "稀有度",
     "length": "长度(cm)",
