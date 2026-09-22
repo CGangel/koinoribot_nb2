@@ -194,6 +194,35 @@ def _fish_keyboard(
     ))
 
 
+# 水族箱卡片批量操作按钮（官Bot）：两行排布——第一行只处理已长至最大
+# 的鱼，第二行处理全部
+_AQUARIUM_BUTTON_ROWS = (
+    ("出售大鱼", "放生大鱼"),
+    ("全部出售", "全部放生"),
+)
+
+
+def _aquarium_button_rows(owner_uid: int, view_ref: int) -> list[list[dict]]:
+    """水族箱卡片按钮行规格：两行批量操作。
+
+    data 携带 ``动作:归属uid:卡片引用``（一次性令牌，与钓鱼卡片第二行
+    同机制）——仅归属者对每个按钮的首次点击响应，非归属者或重复点击
+    静默忽略。
+    """
+    scope = f":{owner_uid}:{view_ref}"
+    return [
+        [{"label": label, "data": f"{label}{scope}"} for label in row]
+        for row in _AQUARIUM_BUTTON_ROWS
+    ]
+
+
+def _aquarium_keyboard(owner_uid: int):
+    """官Bot 水族箱卡片下方的批量操作按钮键盘"""
+    return qq_buttons.build_keyboard(_aquarium_button_rows(
+        owner_uid, next(_card_ref_seq)
+    ))
+
+
 async def _send_qqbot_card(
     bot: Bot, event: Event, uid: int, result: dict, image_bytes: bytes
 ) -> bool:
@@ -313,9 +342,9 @@ HELP_TEXT = """【钓鱼玩法】
   水族箱卖出 <编号> —— 出售对应位置的鱼
   水族箱放生 <编号> —— 放生对应位置的鱼
   出售大鱼 —— 一键卖出箱里已长至最大的鱼
-  放生大鱼 —— 一键放生箱里已长至最大的鱼换取幸运币
-  一键出售 —— 一键卖出水族箱中全部的鱼
-  一键放生 —— 一键放生全部可放生的鱼换取幸运币
+  放生大鱼 —— 批量放生箱里已长至最大的鱼换取幸运币
+  全部出售 —— 卖出水族箱中全部的鱼
+  全部放生 —— 放生全部可放生的鱼（售价达到1万）换取幸运币
   扩展水族箱 —— 扩展水族箱的槽位
 水族箱中的鱼会自动长大，无需照料
 
@@ -551,19 +580,21 @@ async def handle_auto_sell_off(uid: int = Depends(get_uid)) -> None:
 _FISH_BUTTON_ACTIONS = {
     "卖鱼", "放生", "放入水族箱", "查看水族箱",
     "开启自动处理", "关闭自动处理",
-    # 旧称（历史卡片上的按钮仍可能携带）
-    "我的背包", "开启自动出售", "关闭自动出售",
+    # 水族箱卡片批量操作按钮
+    "出售大鱼", "放生大鱼", "全部放生", "全部出售",
 }
 
 
 # ===== 官Bot 钓鱼卡片按钮（interaction 回调） =====
 
-# 第二行按钮（查看水族箱/自动处理开关/旧称我的背包）：一次性令牌动作。
-# 与第一行不同，这些动作不消费待处理鱼获，「只响应一次」由内存令牌
-# 表实现：动作:归属uid:卡片引用 首次点击生效后即失效。
+# 一次性令牌动作（不消费待处理鱼获）。「只响应一次」由内存令牌表实现：
+# 动作:归属uid:卡片引用 首次点击生效后即失效——钓鱼卡片第二行（查看
+# 水族箱/自动处理开关）与水族箱卡片批量操作按钮（出售/放生大鱼、全部
+# 出售/放生）共用该机制，非归属者点击与重复点击均静默忽略。
 _ONE_SHOT_BUTTON_ACTIONS = {
-    "查看水族箱", "我的背包",
-    "开启自动处理", "关闭自动处理", "开启自动出售", "关闭自动出售",
+    "查看水族箱",
+    "开启自动处理", "关闭自动处理",
+    "出售大鱼", "放生大鱼", "全部放生", "全部出售",
 }
 
 # 卡片引用号（自动处理的卡片没有 pending item id，用进程内自增号）
@@ -601,13 +632,13 @@ async def _list_button_reply(text: str):
 async def _run_fish_button(
     uid: int, action: str, scope: tuple[int, int] | None = None
 ):
-    """执行钓鱼卡片按钮动作，返回回复（短文本或长图 ImageReply）。
+    """执行钓鱼/水族箱卡片按钮动作，返回回复（短文本或长图 ImageReply）。
 
     scope = (归属uid, 鱼实例id或卡片引用) 来自卡片按钮 data：
     第一行（卖鱼/放生/放入水族箱）按待处理鱼校验——非归属者点击、或该鱼
-    已被处理（重复点击）时静默忽略（返回空）；第二行（查看水族箱/自动
-    处理开关）按一次性令牌校验——仅归属者对每个按钮的首次点击响应，
-    重复点击或旧卡片（无归属上下文）静默忽略。
+    已被处理（重复点击）时静默忽略（返回空）；其余按钮（查看水族箱/自动
+    处理开关/水族箱批量操作）按一次性令牌校验——仅归属者对每个按钮的
+    首次点击响应，重复点击或旧卡片（无归属上下文）静默忽略。
     """
     if action in _ONE_SHOT_BUTTON_ACTIONS:
         if scope is None:
@@ -660,19 +691,32 @@ async def _run_fish_button(
             f"{result['species_name']}搬进了水族箱(槽位 #{result['slot']})~"
             "它会在箱里慢慢长大"
         )
-    if action in ("开启自动处理", "开启自动出售"):
+    if action == "开启自动处理":
         result = await FishService.set_auto_sell(uid, True)
         return AUTO_ON_TEXT.format(threshold=result["threshold"])
-    if action in ("关闭自动处理", "关闭自动出售"):
+    if action == "关闭自动处理":
         await FishService.set_auto_sell(uid, False)
         return AUTO_OFF_TEXT
     if action == "查看水族箱":
         image_bytes = await _aquarium_image(uid)
         if image_bytes:
-            return qq_buttons.ImageReply(image_bytes)
+            # 呼出的新卡片同样携带批量操作按钮（新卡片引用 = 新令牌组）
+            return qq_buttons.ImageReply(
+                image_bytes, keyboard=_aquarium_keyboard(uid)
+            )
         return await _list_button_reply(await _aquarium_text(uid))
-    if action == "我的背包":      # 旧称（历史卡片按钮）
-        return await _list_button_reply(await _gear_list_text(uid))
+    if action == "出售大鱼":
+        return _sell_grown_text(
+            await FishService.sell_aquarium_batch(uid, only_grown=True)
+        )
+    if action == "放生大鱼":
+        return _release_grown_text(
+            await FishService.release_aquarium_all(uid, only_grown=True)
+        )
+    if action == "全部出售":
+        return _sell_all_text(await FishService.sell_aquarium_batch(uid))
+    if action == "全部放生":
+        return _release_all_text(await FishService.release_aquarium_all(uid))
     return ""
 
 
@@ -994,7 +1038,7 @@ async def _aquarium_text(uid: int) -> str:
         lines.append(
             "\n鱼在箱里会自己慢慢长大，无需照料"
             "\n发送 水族箱卖出/水族箱放生 <槽位编号> 可出售/放生对应的鱼"
-            "\n发送 出售大鱼/放生大鱼/一键出售/一键放生 可批量处理在箱的鱼"
+            "\n发送 出售大鱼/放生大鱼/全部出售/全部放生 可批量处理在箱的鱼"
             "\n放生将获得等同于幸运值的幸运币"
         )
         if player["pump_owned"]:
@@ -1043,7 +1087,7 @@ async def _aquarium_image(uid: int) -> bytes | None:
     if rows:
         hints = [
             "发送 水族箱卖出/水族箱放生 <槽位编号> 出售/放生单条",
-            "发送 出售大鱼/放生大鱼/一键出售/一键放生 批量处理在箱的鱼",
+            "发送 出售大鱼/放生大鱼/全部出售/全部放生 批量处理在箱的鱼",
         ]
     else:
         hints = ["空空如也，钓到鱼后选择 放入水族箱 就能开始养成~"]
@@ -1075,7 +1119,23 @@ async def handle_aquarium(
     uid: int = Depends(get_uid),
 ) -> None:
     image_bytes = await _aquarium_image(uid)
-    if image_bytes is not None:
+    if image_bytes is not None and _is_qqbot_event(event):
+        # 官Bot：卡片图 + 批量操作按钮键盘，单条合并（markdown 内嵌图）
+        # 优先；图床不可用回退「富媒体图片 + 按钮键盘」两条消息
+        keyboard = _aquarium_keyboard(uid)
+        try:
+            if await qq_buttons.send_image_with_keyboard(
+                bot, event, image_bytes, keyboard
+            ):
+                return
+            await bot.send(event, build_image_msg(event, image_bytes))
+            await qq_buttons.send_keyboard_message(bot, event, " ", keyboard)
+            return
+        except FinishedException:
+            raise                  # finish 的正常终止信号，放行
+        except Exception as error:
+            logger.warning(f"发送水族箱卡片失败，回退文本: {error}")
+    elif image_bytes is not None:
         try:
             await aquarium_cmd.finish(build_image_msg(event, image_bytes))
         except FinishedException:
@@ -1138,56 +1198,85 @@ async def handle_tank_release(
     )
 
 
+def _sell_grown_text(result: dict) -> str:
+    """出售大鱼 的回复文本（指令与官Bot按钮共用）"""
+    if result["count"] == 0:
+        return "水族箱里没有已长至最大的鱼~（鱼在箱里会自己慢慢长大）"
+    tail = (
+        f"\n其余 {result['kept']} 条尚未长至最大，仍留在箱里"
+        if result["kept"] else ""
+    )
+    return (
+        f"售出 {result['count']} 条已长至最大的鱼，"
+        f"共获得 {result['total']} 金币~{tail}"
+    )
+
+
+def _release_grown_text(result: dict) -> str:
+    """放生大鱼 的回复文本（指令与官Bot按钮共用）"""
+    if result["count"] == 0:
+        if result["skipped"]:
+            return (
+                "已长至最大的鱼售价都不足1万，无法通过放生获得幸运币~\n"
+                "可发送 出售大鱼 卖掉它们"
+            )
+        return "水族箱里没有可放生的已长至最大的鱼~（鱼在箱里会自己慢慢长大）"
+    tails = []
+    if result["skipped"]:
+        tails.append(
+            f"\n另有 {result['skipped']} 条已长至最大但售价不足1万，无法放生"
+        )
+    if result["kept"]:
+        tails.append(f"\n其余 {result['kept']} 条尚未长至最大，仍留在箱里")
+    return (
+        f"放生 {result['count']} 条已长至最大的鱼，"
+        f"共获得 {result['total_lucky']} 幸运币~" + "".join(tails)
+    )
+
+
+def _sell_all_text(result: dict) -> str:
+    """全部出售 的回复文本（指令与官Bot按钮共用）"""
+    if result["count"] == 0:
+        return "水族箱空空如也，没有可出售的鱼~"
+    return f"售出水族箱全部 {result['count']} 条鱼，共获得 {result['total']} 金币~"
+
+
+def _release_all_text(result: dict) -> str:
+    """全部放生 的回复文本（指令与官Bot按钮共用）"""
+    if result["count"] == 0:
+        return "水族箱里没有可放生的鱼（售价达到1万金币才可放生）~"
+    tail = (
+        f"\n另有 {result['skipped']} 条售价不足1万，仍留在箱里"
+        if result["skipped"] else ""
+    )
+    return f"放生 {result['count']} 条鱼，共获得 {result['total_lucky']} 幸运币~{tail}"
+
+
 sell_grown_cmd = on_command("出售大鱼", priority=5, block=True)
 
 
 @sell_grown_cmd.handle()
 async def handle_sell_grown(uid: int = Depends(get_uid)) -> None:
     result = await FishService.sell_aquarium_batch(uid, only_grown=True)
-    if result["count"] == 0:
-        await sell_grown_cmd.finish(
-            "水族箱里没有已长至最大的鱼~（鱼在箱里会自己慢慢长大）"
-        )
-    tail = (
-        f"\n其余 {result['kept']} 条尚未长至最大，仍留在箱里"
-        if result["kept"] else ""
-    )
-    await sell_grown_cmd.finish(
-        f"售出 {result['count']} 条已长至最大的鱼，"
-        f"共获得 {result['total']} 金币~{tail}"
-    )
+    await sell_grown_cmd.finish(_sell_grown_text(result))
 
 
-sell_all_cmd = on_command("一键出售", priority=5, block=True)
+sell_all_cmd = on_command("全部出售", priority=5, block=True)
 
 
 @sell_all_cmd.handle()
 async def handle_sell_all(uid: int = Depends(get_uid)) -> None:
     result = await FishService.sell_aquarium_batch(uid)
-    if result["count"] == 0:
-        await sell_all_cmd.finish("水族箱空空如也，没有可出售的鱼~")
-    await sell_all_cmd.finish(
-        f"售出水族箱全部 {result['count']} 条鱼，共获得 {result['total']} 金币~"
-    )
+    await sell_all_cmd.finish(_sell_all_text(result))
 
 
-release_all_cmd = on_command("一键放生", priority=5, block=True)
+release_all_cmd = on_command("全部放生", priority=5, block=True)
 
 
 @release_all_cmd.handle()
 async def handle_release_all(uid: int = Depends(get_uid)) -> None:
     result = await FishService.release_aquarium_all(uid)
-    if result["count"] == 0:
-        await release_all_cmd.finish(
-            "水族箱里没有可放生的鱼（售价达到1万金币才可放生）~"
-        )
-    tail = (
-        f"\n另有 {result['skipped']} 条售价不足1万，仍留在箱里"
-        if result["skipped"] else ""
-    )
-    await release_all_cmd.finish(
-        f"放生 {result['count']} 条鱼，共获得 {result['total_lucky']} 幸运币~{tail}"
-    )
+    await release_all_cmd.finish(_release_all_text(result))
 
 
 release_grown_cmd = on_command("放生大鱼", priority=5, block=True)
@@ -1197,26 +1286,7 @@ release_grown_cmd = on_command("放生大鱼", priority=5, block=True)
 async def handle_release_grown(uid: int = Depends(get_uid)) -> None:
     """放生全部已长至最大的可放生鱼（售价达到1万才有幸运值）"""
     result = await FishService.release_aquarium_all(uid, only_grown=True)
-    if result["count"] == 0:
-        if result["skipped"]:
-            await release_grown_cmd.finish(
-                "已长至最大的鱼售价都不足1万，无法通过放生获得幸运币~\n"
-                "可发送 出售大鱼 卖掉它们"
-            )
-        await release_grown_cmd.finish(
-            "水族箱里没有可放生的已长至最大的鱼~（鱼在箱里会自己慢慢长大）"
-        )
-    tails = []
-    if result["skipped"]:
-        tails.append(
-            f"\n另有 {result['skipped']} 条已长至最大但售价不足1万，无法放生"
-        )
-    if result["kept"]:
-        tails.append(f"\n其余 {result['kept']} 条尚未长至最大，仍留在箱里")
-    await release_grown_cmd.finish(
-        f"放生 {result['count']} 条已长至最大的鱼，"
-        f"共获得 {result['total_lucky']} 幸运币~" + "".join(tails)
-    )
+    await release_grown_cmd.finish(_release_grown_text(result))
 
 
 expand_cmd = on_command("扩展水族箱", priority=5, block=True)
@@ -1301,7 +1371,7 @@ gear_cmd = on_command("我的渔具", aliases={"钓鱼背包", "我的背包", "
 
 
 async def _gear_list_text(uid: int) -> str:
-    """我的背包文本（指令与官Bot按钮共用）"""
+    """我的背包文本（指令用）"""
     player = await FishService.ensure_player(uid)
     rods, lines, baits = rod_table(), line_table(), bait_table()
 

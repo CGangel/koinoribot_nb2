@@ -26,14 +26,17 @@ _interaction_handlers: dict[str, "InteractionHandler"] = {}
 
 @dataclass
 class ImageReply:
-    """图片回复载体：本地渲染的字节图 + 可选短说明文字。
+    """图片回复载体：本地渲染的字节图 + 可选短说明文字 + 可选按钮键盘。
 
     分发器以 [text, file_image] 消息发送；官Bot 回复装饰补丁会把其转为
     markdown 内嵌图（@回复者在前），图床不可用时降级富媒体原图发送。
+    携带 keyboard 时优先单条合并发送（markdown 内嵌图 + 键盘），图床
+    不可用回退「富媒体图片 + 按钮键盘」两条消息。
     """
 
     image: bytes
     caption: str = ""
+    keyboard: Any = None
 
 
 InteractionHandler = Callable[[int, Any], Awaitable[Union[str, ImageReply, None]]]
@@ -184,10 +187,18 @@ async def dispatch_interaction(bot: Bot, event) -> None:
             from nonebot.adapters.qq.message import Message as QQMessage
             from nonebot.adapters.qq.message import MessageSegment as QQSeg
 
+            # 携带键盘：优先单条合并（markdown 内嵌图 + 键盘），
+            # 图床不可用回退「富媒体图片 + 按钮键盘」两条消息
+            if reply.keyboard is not None and await send_image_with_keyboard(
+                bot, event, reply.image, reply.keyboard, reply.caption
+            ):
+                return
             segs = (
                 [QQSeg.text(reply.caption)] if reply.caption else []
             ) + [QQSeg.file_image(reply.image)]
             await bot.send(event, QQMessage(segs))
+            if reply.keyboard is not None:
+                await send_keyboard_message(bot, event, " ", reply.keyboard)
         else:
             await bot.send(event, reply)
     except Exception as error:
