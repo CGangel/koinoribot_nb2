@@ -171,6 +171,21 @@ def growth_cap(caught_length_cm: float) -> float:
     return round(max(0.1, float(caught_length_cm)) * _growth_cap_factor(), 1)
 
 
+# 「已长至最大」的判定容差（长度以 0.1cm 步长记录）
+_GROWN_EPSILON = 1e-6
+
+
+def is_fully_grown(length_cm: float, caught_length_cm: float) -> bool:
+    """水族箱中的鱼是否已长至成长上限。
+
+    出售大鱼（批量）与水族箱面板的「已长至最大」共用同一判定口径。
+    """
+    try:
+        return float(length_cm) >= growth_cap(caught_length_cm) - _GROWN_EPSILON
+    except (TypeError, ValueError):
+        return False
+
+
 # ================== 品种表（配置面板可增删改） ==================
 
 _FALLBACK_SPECIES: dict = {

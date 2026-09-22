@@ -312,7 +312,8 @@ HELP_TEXT = """【钓鱼玩法】
   查看水族箱 —— 呼出水族箱面板
   水族箱卖出 <编号> —— 出售对应位置的鱼
   水族箱放生 <编号> —— 放生对应位置的鱼
-  出售小鱼 —— 一键卖出箱里售价低于1万的小鱼
+  出售大鱼 —— 一键卖出箱里已长至最大的鱼
+  放生大鱼 —— 一键放生箱里已长至最大的鱼换取幸运币
   一键出售 —— 一键卖出水族箱中全部的鱼
   一键放生 —— 一键放生全部可放生的鱼换取幸运币
   扩展水族箱 —— 扩展水族箱的槽位
@@ -969,7 +970,7 @@ def _fmt_slot_line(slot: int, item: dict) -> str:
         f"{_fmt_len(item['length'])}cm 售价{price}金币 幸运值{lucky}"
     )
     cap = C.growth_cap(item["caught_length"])
-    if abs(item["length"] - cap) < 1e-6:
+    if C.is_fully_grown(item["length"], item["caught_length"]):
         return f"{head}\n已长至最大"
     max_price = calc_sell_price(item["species_id"], cap)
     max_lucky = C.lucky_value_of_price(max_price)
@@ -993,7 +994,7 @@ async def _aquarium_text(uid: int) -> str:
         lines.append(
             "\n鱼在箱里会自己慢慢长大，无需照料"
             "\n发送 水族箱卖出/水族箱放生 <槽位编号> 可出售/放生对应的鱼"
-            "\n发送 出售小鱼/一键出售/一键放生 可批量处理在箱的鱼"
+            "\n发送 出售大鱼/放生大鱼/一键出售/一键放生 可批量处理在箱的鱼"
             "\n放生将获得等同于幸运值的幸运币"
         )
         if player["pump_owned"]:
@@ -1042,7 +1043,7 @@ async def _aquarium_image(uid: int) -> bytes | None:
     if rows:
         hints = [
             "发送 水族箱卖出/水族箱放生 <槽位编号> 出售/放生单条",
-            "发送 出售小鱼/一键出售/一键放生 批量处理在箱的鱼",
+            "发送 出售大鱼/放生大鱼/一键出售/一键放生 批量处理在箱的鱼",
         ]
     else:
         hints = ["空空如也，钓到鱼后选择 放入水族箱 就能开始养成~"]
@@ -1137,22 +1138,23 @@ async def handle_tank_release(
     )
 
 
-sell_small_cmd = on_command("出售小鱼", priority=5, block=True)
+sell_grown_cmd = on_command("出售大鱼", priority=5, block=True)
 
 
-@sell_small_cmd.handle()
-async def handle_sell_small(uid: int = Depends(get_uid)) -> None:
-    result = await FishService.sell_aquarium_batch(uid, only_small=True)
+@sell_grown_cmd.handle()
+async def handle_sell_grown(uid: int = Depends(get_uid)) -> None:
+    result = await FishService.sell_aquarium_batch(uid, only_grown=True)
     if result["count"] == 0:
-        await sell_small_cmd.finish(
-            f"水族箱里没有售价低于{result['threshold']}金币的小鱼~"
+        await sell_grown_cmd.finish(
+            "水族箱里没有已长至最大的鱼~（鱼在箱里会自己慢慢长大）"
         )
     tail = (
-        f"\n其余 {result['kept']} 条售价不低于{result['threshold']}金币，仍留在箱里"
+        f"\n其余 {result['kept']} 条尚未长至最大，仍留在箱里"
         if result["kept"] else ""
     )
-    await sell_small_cmd.finish(
-        f"售出 {result['count']} 条小鱼，共获得 {result['total']} 金币~{tail}"
+    await sell_grown_cmd.finish(
+        f"售出 {result['count']} 条已长至最大的鱼，"
+        f"共获得 {result['total']} 金币~{tail}"
     )
 
 
@@ -1185,6 +1187,35 @@ async def handle_release_all(uid: int = Depends(get_uid)) -> None:
     )
     await release_all_cmd.finish(
         f"放生 {result['count']} 条鱼，共获得 {result['total_lucky']} 幸运币~{tail}"
+    )
+
+
+release_grown_cmd = on_command("放生大鱼", priority=5, block=True)
+
+
+@release_grown_cmd.handle()
+async def handle_release_grown(uid: int = Depends(get_uid)) -> None:
+    """放生全部已长至最大的可放生鱼（售价达到1万才有幸运值）"""
+    result = await FishService.release_aquarium_all(uid, only_grown=True)
+    if result["count"] == 0:
+        if result["skipped"]:
+            await release_grown_cmd.finish(
+                "已长至最大的鱼售价都不足1万，无法通过放生获得幸运币~\n"
+                "可发送 出售大鱼 卖掉它们"
+            )
+        await release_grown_cmd.finish(
+            "水族箱里没有可放生的已长至最大的鱼~（鱼在箱里会自己慢慢长大）"
+        )
+    tails = []
+    if result["skipped"]:
+        tails.append(
+            f"\n另有 {result['skipped']} 条已长至最大但售价不足1万，无法放生"
+        )
+    if result["kept"]:
+        tails.append(f"\n其余 {result['kept']} 条尚未长至最大，仍留在箱里")
+    await release_grown_cmd.finish(
+        f"放生 {result['count']} 条已长至最大的鱼，"
+        f"共获得 {result['total_lucky']} 幸运币~" + "".join(tails)
     )
 
 

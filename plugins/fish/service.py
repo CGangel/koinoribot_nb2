@@ -416,38 +416,43 @@ class FishService:
         return result
 
     @classmethod
-    async def sell_aquarium_batch(cls, uid: int, only_small: bool = False) -> dict:
+    async def sell_aquarium_batch(cls, uid: int, only_grown: bool = False) -> dict:
         """批量卖出水族箱的鱼（先结算养成长度，按当前长度计价）。
 
-        only_small=True 只卖当前售价低于 auto_sell_threshold（默认 1 万）
-        的小鱼，其余留在箱里；返回售出数量、总收入与留下数量。
+        only_grown=True 只卖已长至成长上限的鱼（出售大鱼），其余留在箱里；
+        返回售出数量、总收入与留下数量。
         """
-        threshold = C.auto_sell_threshold()
         items = await cls.list_aquarium(uid)
         sold = total = kept = 0
         for item in items:
-            if only_small and calc_sell_price(
-                item["species_id"], item["length"]
-            ) >= threshold:
+            if only_grown and not C.is_fully_grown(
+                item["length"], item["caught_length"]
+            ):
                 kept += 1
                 continue
             result = await cls._sell_item(uid, item)
             sold += 1
             total += result["price"]
-        return {
-            "ok": True, "count": sold, "total": total, "kept": kept,
-            "threshold": threshold,
-        }
+        return {"ok": True, "count": sold, "total": total, "kept": kept}
 
     @classmethod
-    async def release_aquarium_all(cls, uid: int) -> dict:
+    async def release_aquarium_all(
+        cls, uid: int, only_grown: bool = False
+    ) -> dict:
         """放生水族箱中全部可放生的鱼（幸运值≥1，即售价达到第一档阈值）。
 
         售价不足第一档的鱼无法通过放生获得幸运币，留在箱里（skipped）。
+        only_grown=True 只处理已长至成长上限的鱼（放生大鱼），未长满的
+        直接留下（kept，不计入放生尝试）。
         """
         items = await cls.list_aquarium(uid)
-        released = total_lucky = skipped = 0
+        released = total_lucky = skipped = kept = 0
         for item in items:
+            if only_grown and not C.is_fully_grown(
+                item["length"], item["caught_length"]
+            ):
+                kept += 1
+                continue
             result = await cls._release_item(uid, item)
             if result["ok"]:
                 released += 1
@@ -456,7 +461,7 @@ class FishService:
                 skipped += 1
         return {
             "ok": True, "count": released, "total_lucky": total_lucky,
-            "skipped": skipped,
+            "skipped": skipped, "kept": kept,
         }
 
     @classmethod

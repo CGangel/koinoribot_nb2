@@ -168,7 +168,7 @@ async def _finish_existing_pet_gacha(
             f"你已有一只宠物({pet_data['type']})等待领养，请先领养或放弃。",
         )
         return
-    if random.random() < 0.9:
+    if random.random() < 0.99:
         money.gold += GACHA_CONSOLE_PRIZE
         await open_gacha_cmd.finish(
             f"你已经有宠物了，本次扭蛋里没有宠物，获得{GACHA_CONSOLE_PRIZE}金币安慰奖...",
