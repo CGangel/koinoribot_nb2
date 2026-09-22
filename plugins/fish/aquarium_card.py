@@ -33,7 +33,9 @@ FONT_DIR = ROOT / "src" / "fonts"
 CAPACITY = 20
 
 _spec: Optional[dict] = None
-_base_cache: dict[str, "object"] = {}
+# 与 card.py 同策略：底图只缓存压缩 PNG 字节，渲染时逐次解码，
+# 不让解码后的像素图常驻内存（PNG 无损，逐次解码颜色无差异）
+_base_cache: dict[str, bytes] = {}
 _font_cache: dict[int, "object"] = {}
 
 
@@ -58,12 +60,15 @@ def _font(size: int):
     return _font_cache[size]
 
 
-def _base(image_name: str):
+def _base(image_name: str) -> "object":
+    """返回底图的全新 RGB 图像（调用方仅 crop 取局部，无需 copy）。"""
+    import io
+
     from PIL import Image
 
     if image_name not in _base_cache:
-        _base_cache[image_name] = Image.open(IMG_DIR / image_name).convert("RGB")
-    return _base_cache[image_name]
+        _base_cache[image_name] = (IMG_DIR / image_name).read_bytes()
+    return Image.open(io.BytesIO(_base_cache[image_name])).convert("RGB")
 
 
 def _hex_rgb(value: str) -> tuple[int, int, int]:

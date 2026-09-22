@@ -100,6 +100,9 @@ async def init_koinoribot():
 from . import config_web
 from . import image_host
 
+# 周期缓存清理（malloc_trim，面板「缓存清理周期」热控制；自身注册启动钩子）
+from . import mem_trim  # noqa: F401
+
 
 @driver.on_startup
 async def start_config_panel():

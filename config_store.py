@@ -386,6 +386,9 @@ class KoinoribotConfig(BaseModel):
     # 黑名单用户
     blackusers: list = []
     global_msg_cd: int = 1                      # 全局每用户消息冷却（秒，0=关闭）
+    # 周期缓存清理间隔（秒）：周期 malloc_trim 把 glibc 囤住的空闲页还给
+    # 系统，缓解高流量后 RSS 棘轮上涨；0 = 关闭
+    cache_clean_interval: int = 0
 
     # 公网白名单模式
     public_bot: bool = False                 # 是否启用云bot模式
@@ -445,7 +448,7 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "daily_limit", "ai_draw_enable", "ai_draw_size", "shaojo_image_size",
         "aidraw_quality", "aidraw_high_quality", "enable_gold_aidraw",
     ],
-    "其他配置": ["blackusers", "global_msg_cd"],
+    "其他配置": ["blackusers", "global_msg_cd", "cache_clean_interval"],
     "公网白名单模式": ["public_bot", "permit_bot", "ip_address"],
 }
 
@@ -530,6 +533,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     # 其他配置
     "blackusers": "黑名单用户（统一 UID 列表）",
     "global_msg_cd": "全局限频：同一用户两条消息的最小间隔（秒），间隔内的消息静默忽略；SU 豁免；0 = 关闭",
+    "cache_clean_interval": "缓存清理周期（单位为秒），可优化内存占用，为0时关闭",
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
     "permit_bot": "豁免名单（云 bot 模式必填）：本名单内的bot将跳过白名单检查；QQ 号/官Bot appid 精确匹配，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",

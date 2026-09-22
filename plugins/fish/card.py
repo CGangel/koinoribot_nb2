@@ -30,7 +30,11 @@ FONT_DIR = ROOT / "src" / "fonts"
 
 _spec: Optional[dict] = None
 _font_cache: dict[int, "object"] = {}
-_base_cache: dict[str, "object"] = {}
+# 底图只缓存压缩 PNG 字节（每张 ~15KB），渲染时逐次解码：
+# 解码后的 RGB 像素 1640×960 每张 ~4.6MB，常驻会把 10 张变体
+# 全部堆进内存（~50MB，惰性填充表现为内存缓慢上涨）；PNG 无损，
+# 逐次解码与常驻解码像素逐位一致，代价仅每次渲染多几毫秒
+_base_cache: dict[str, bytes] = {}
 
 
 def _load_spec() -> Optional[dict]:
@@ -54,14 +58,15 @@ def _font(size: int):
     return _font_cache[size]
 
 
-def _base(image_name: str):
+def _base(image_name: str) -> "object":
+    """返回底图的全新 RGB 图像（调用方直接在其上作画，无需 copy）。"""
+    import io
+
     from PIL import Image
 
     if image_name not in _base_cache:
-        _base_cache[image_name] = Image.open(
-            IMG_DIR / image_name
-        ).convert("RGB")
-    return _base_cache[image_name]
+        _base_cache[image_name] = (IMG_DIR / image_name).read_bytes()
+    return Image.open(io.BytesIO(_base_cache[image_name])).convert("RGB")
 
 
 def _fit_art(art_bytes: bytes, box: tuple[int, int, int, int], scale: int):
@@ -191,7 +196,7 @@ def render(
     theme = themes.get(rarity) or themes[spec["default_theme"]]
     try:
         scale = spec["scale"]
-        img = _base(theme["air_image" if air else "image"]).copy()
+        img = _base(theme["air_image" if air else "image"])
         draw = ImageDraw.Draw(img)
         art_box = spec["art_box"]
         if art_bytes:
