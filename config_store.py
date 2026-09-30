@@ -355,6 +355,7 @@ class KoinoribotConfig(BaseModel):
     min_rest: int = 1000                    # 转账后最少剩余金币
     dibao: int = 3000                       # 低保金额
     gold_max: int = 9999999999              # 金币上限
+    kirastone_max: int = 999999             # 宝石上限
     transfer_fee: float = 0.1               # 转账手续费比率
     stone_fee: float = 0.05                 # 退还宝石手续费比率
     return_item_fee: float = 0.5            # 退还宠物用品手续费比率
@@ -437,7 +438,7 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "fish_slot_base_price", "fish_growth_cap_factor",
     ],
     "经济系统": [
-        "min_rest", "dibao", "gold_max", "transfer_fee", "stone_fee",
+        "min_rest", "dibao", "gold_max", "kirastone_max", "transfer_fee", "stone_fee",
         "return_item_fee", "init_gold", "init_luckygold", "init_starstone",
         "init_kirastone",
     ],
@@ -506,6 +507,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "min_rest": "转账后账户最少需保留的金币",
     "dibao": "低保金额，贫穷时可以领取",
     "gold_max": "金币持有上限",
+    "kirastone_max": "宝石持有上限",
     "transfer_fee": "转账手续费比率（0.1 = 10%）",
     "stone_fee": "退还宝石的手续费比率",
     "return_item_fee": "退还宠物用品的手续费比率",

@@ -25,9 +25,14 @@ DEFAULT_ASSETS = {
     "badluck": 0,  # 忌做事项索引
 }
 
-# 资产上限（运行时读取，配置面板修改后即时生效）
-def _gold_max() -> int:
-    return get_config().gold_max
+# 资产上限（运行时读取，配置面板修改后即时生效；None = 无上限）
+def _cap_for(key: str):
+    cfg = get_config()
+    if key == "gold":
+        return cfg.gold_max
+    if key == "kirastone":
+        return cfg.kirastone_max
+    return None
 
 # 新用户钱包预设（运行时读取，配置面板修改后即时生效）
 def _init_assets() -> dict:
@@ -192,8 +197,9 @@ class _MoneyRepository:
             return 0
 
         value = int(value)
-        if key == "gold":
-            value = min(value, _gold_max())
+        cap = _cap_for(key)
+        if cap is not None:
+            value = min(value, cap)
 
         conn = None
         try:
@@ -226,10 +232,11 @@ class _MoneyRepository:
             cursor = conn.cursor()
 
             self._ensure_user_exists(cursor, uid)
-            if key == "gold":
+            cap = _cap_for(key)
+            if cap is not None:
                 cursor.execute(
                     f"UPDATE user_money SET {key} = MIN({key} + ?, ?) WHERE uid = ?",
-                    (value, _gold_max(), uid),
+                    (value, cap, uid),
                 )
             else:
                 cursor.execute(
@@ -291,8 +298,9 @@ class _MoneyRepository:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            if key == "gold":
-                cursor.execute(f"UPDATE user_money SET {key} = MIN({key} + ?, ?)", (value, _gold_max()))
+            cap = _cap_for(key)
+            if cap is not None:
+                cursor.execute(f"UPDATE user_money SET {key} = MIN({key} + ?, ?)", (value, cap))
             else:
                 cursor.execute(f"UPDATE user_money SET {key} = {key} + ?", (value,))
 
