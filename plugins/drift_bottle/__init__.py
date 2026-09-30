@@ -29,7 +29,7 @@ __plugin_meta__ = PluginMetadata(
     usage="买漂流瓶 / 合成漂流瓶 / 扔漂流瓶 / 捡漂流瓶 / 评论漂流瓶 等",
 )
 
-# 冷却限制器（时长可热更新配置，修改需重启生效）
+# 冷却限制器（时长在每次 start_cd 时现读配置，面板热更新即时生效）
 throw_freq = FreqLimiter(config.throw_cool_time)
 get_freq = FreqLimiter(config.salvage_cool_time)
 comm_freq = FreqLimiter(config.comment_cool_time)
@@ -164,7 +164,7 @@ async def handle_throw_bottle(
             )
         await throw_bottle_cmd.finish("扔漂流瓶失败...")
 
-    throw_freq.start_cd(uid)
+    throw_freq.start_cd(uid, config.throw_cool_time)
     await throw_bottle_cmd.finish(
         "你将漂流瓶放入水中，目送它漂向诗与远方...\n"
         f"(漂流瓶ID: {result['bottle_id']}，还持有 {result['owned']} 个)"
@@ -198,7 +198,7 @@ async def handle_pick_bottle(
             )
         await pick_bottle_cmd.finish("没有可捞取的漂流瓶")
 
-    get_freq.start_cd(uid)
+    get_freq.start_cd(uid, config.salvage_cool_time)
     bottle = result["bottle"]
 
     bottle_msg = "🍾 漂流瓶 #" + result["bottle_id"] + "\n"
@@ -274,7 +274,7 @@ async def handle_comment_bottle(
             await comment_bottle_cmd.finish("找不到这个漂流瓶")
         await comment_bottle_cmd.finish("评论失败...")
 
-    comm_freq.start_cd(uid)
+    comm_freq.start_cd(uid, config.comment_cool_time)
     await comment_bottle_cmd.finish(f"评论成功！(金币-{result['cost']})")
 
 

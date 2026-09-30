@@ -421,7 +421,8 @@ async def handle_cast(
             )
         await cast_cmd.finish("钓鱼失败了...")
 
-    cast_freq.start_cd(uid)
+    # 冷却时长每次触发时现读配置（面板热更新即时生效）
+    cast_freq.start_cd(uid, C.cast_cd())
 
     # 幸运宝珠：幸运暴击前缀行 + 能量行
     orb = result.get("orb")

@@ -466,9 +466,9 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "qqbot_appid": "官方 QQBot 的 AppID，用于换算用户昵称/头像",
     "qqbot_openid_api": "OpenID 查询昵称的第三方 API 地址（官方昵称字段的降级路径）",
     # 漂流瓶
-    "throw_cool_time": "扔漂流瓶冷却时长（秒）；修改需重启生效",
-    "salvage_cool_time": "捡漂流瓶冷却时长（秒）；修改需重启生效",
-    "comment_cool_time": "评论漂流瓶冷却时长（秒）；修改需重启生效",
+    "throw_cool_time": "扔漂流瓶冷却时长（秒）",
+    "salvage_cool_time": "捡漂流瓶冷却时长（秒）",
+    "comment_cool_time": "评论漂流瓶冷却时长（秒）",
     "bottle_price": "购买漂流瓶的价格（金币）",
     "comment_price": "评论漂流瓶需要的金币",
     "bottle_craft_starstone": "合成 1 个漂流瓶需要的星星",
