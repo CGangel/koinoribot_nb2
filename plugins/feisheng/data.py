@@ -82,31 +82,43 @@ async def get_feisheng_data(uid: int) -> dict:
     return await loop.run_in_executor(None, _query)
 
 async def update_feisheng_data(uid: int, data: dict):
-    """更新用户的飞升数据"""
+    """更新用户的飞升数据（宠物飞升/突破/渡劫等整行场景）。
+
+    每日修炼计数两列（daily_cultivation_count / cultivation_date）不在此
+    写入：整行回写携带的是调用方读取时的快照，并发下会把
+    consume_cultivation_count 的原子计数覆盖回旧值（跨天边界尤其）。
+    这两列只允许 consume_cultivation_count / refund_cultivation_count
+    变更；新行插入时取默认值（0 / ''）。
+    """
     init_feisheng_database()
-    
+
     def _update():
         conn = _get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute('''
-            INSERT OR REPLACE INTO user_feisheng 
+            INSERT INTO user_feisheng
             (uid, pet_ascension_progress, ascension_progress, is_pet_ascended, is_ascended, realm_level, daily_cultivation_count, cultivation_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 0, '')
+            ON CONFLICT(uid) DO UPDATE SET
+            pet_ascension_progress = excluded.pet_ascension_progress,
+            ascension_progress = excluded.ascension_progress,
+            is_pet_ascended = excluded.is_pet_ascended,
+            is_ascended = excluded.is_ascended,
+            realm_level = excluded.realm_level,
+            updated_time = CURRENT_TIMESTAMP
         ''', (
-            uid, 
+            uid,
             data.get("pet_ascension_progress", 0),
             data.get("ascension_progress", 0),
             int(data.get("is_pet_ascended", 0)),
             int(data.get("is_ascended", 0)),
-            data.get("realm_level", 0),
-            data.get("daily_cultivation_count", 0),
-            data.get("cultivation_date", "")
+            data.get("realm_level", 0)
         ))
-        
+
         conn.commit()
         conn.close()
-    
+
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _update)
 
@@ -114,8 +126,9 @@ async def add_cultivation_progress(uid: int, amount: int) -> int:
     """原子累加修炼进度（封顶 100），返回累加后的进度值。
 
     整行「读取→改内存→REPLACE 回写」在并发修炼下会互相覆盖（进度
-    少加、计数回退），进度与计数两列只经本函数与
-    consume_cultivation_count 的单条 SQL 变更，不再整行回写。
+    少加、计数回退）；修炼进度只经本函数、每日计数只经
+    consume_cultivation_count / refund_cultivation_count 的单条 SQL 变更
+    （update_feisheng_data 已不再写入计数两列）。
     """
     init_feisheng_database()
 
@@ -167,7 +180,12 @@ async def refund_cultivation_count(uid: int) -> None:
 
 
 async def check_daily_cultivation_limit(uid: int, limit: int = 5) -> bool:
-    """检查每日修炼限制。返回 True 表示未超限，可以修炼"""
+    """检查每日修炼限制（纯预检，只读不写）。返回 True 表示未超限。
+
+    跨天重置由 consume_cultivation_count 的 UPSERT 原子完成，预检不再
+    写库——旧的「读整行→重置→整行回写」会把过期快照写回，跨天边界
+    与其他请求的原子更新互相覆盖。
+    """
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -176,16 +194,9 @@ async def check_daily_cultivation_limit(uid: int, limit: int = 5) -> bool:
     count = data.get("daily_cultivation_count", 0)
 
     if last_date != today:
-        # 新的一天，重置
-        data["cultivation_date"] = today
-        data["daily_cultivation_count"] = 0
-        await update_feisheng_data(uid, data)
         return True
 
-    if count >= limit:
-        return False
-
-    return True
+    return count < limit
 
 
 async def consume_cultivation_count(uid: int, limit: int = 5) -> tuple[bool, int]:
@@ -239,12 +250,6 @@ async def consume_cultivation_count(uid: int, limit: int = 5) -> tuple[bool, int
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _consume)
-
-async def increase_cultivation_count(uid: int):
-    """增加每日修炼计数"""
-    data = await get_feisheng_data(uid)
-    data["daily_cultivation_count"] = data.get("daily_cultivation_count", 0) + 1
-    await update_feisheng_data(uid, data)
 
 async def increase_pet_ascension_progress(uid: int, amount: int) -> dict:
     """增加宠物飞升进度"""
