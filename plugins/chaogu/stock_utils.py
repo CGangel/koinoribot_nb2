@@ -626,47 +626,59 @@ async def get_user_gamble_record(uid: int) -> dict:
 
 
 async def check_daily_gamble_limit(uid: int) -> bool:
+    """检查用户今天是否还可以赌博（仅预检提示用；权威判定在
+    claim_daily_gamble 的原子认领）。"""
     from datetime import date
     init_stock_database()
-    
+
     def _check():
         conn = _get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute('SELECT last_gamble_date FROM daily_gamble_limits WHERE uid = ?', (uid,))
         result = cursor.fetchone()
         conn.close()
-        
+
         if result is None:
             return True  # 从未赌过
-        
+
         today_str = date.today().isoformat()
         return result['last_gamble_date'] != today_str
-    
+
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _check)
 
 
-async def record_gamble_today(uid: int):
-    """记录用户今天进行了赌博"""
+async def claim_daily_gamble(uid: int) -> bool:
+    """原子认领当日赌博资格：当日首次返回 True，已赌过返回 False。
+
+    判定与记录在同一条 UPSERT 内完成（旧实现先查再记，并发请求可
+    双双通过检查、当天赌多次）。
+    """
     from datetime import date
     init_stock_database()
-    
-    def _record():
+
+    def _claim():
         conn = _get_connection()
         cursor = conn.cursor()
-        
+
         today_str = date.today().isoformat()
-        cursor.execute('''
-            INSERT OR REPLACE INTO daily_gamble_limits (uid, last_gamble_date)
-            VALUES (?, ?)
-        ''', (uid, today_str))
-        
+        cursor.execute(
+            'INSERT INTO daily_gamble_limits (uid, last_gamble_date)'
+            ' VALUES (?, ?)'
+            ' ON CONFLICT(uid) DO UPDATE SET'
+            ' last_gamble_date = excluded.last_gamble_date'
+            ' WHERE daily_gamble_limits.last_gamble_date != excluded.last_gamble_date',
+            (uid, today_str),
+        )
+        ok = cursor.rowcount == 1
+
         conn.commit()
         conn.close()
-    
+        return ok
+
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _record)
+    return await loop.run_in_executor(None, _claim)
 
 
 # ===== 转盘次数限制相关函数 =====
@@ -703,37 +715,53 @@ async def check_turntable_limit(uid: int) -> tuple[bool, int]:
     return await loop.run_in_executor(None, _check)
 
 
-async def record_turntable_spin(uid: int) -> int:
-    """记录用户今天转了一次转盘，返回剩余次数"""
+async def consume_turntable_spin(uid: int) -> tuple[bool, int]:
+    """原子消耗一次转盘次数：当日上限内成功，跨天自动重置计数。
+
+    判断与扣减在同一条 UPDATE / UPSERT 内完成（旧实现先 SELECT 判断、
+    再整体写回，并发请求会互相读到同一旧值、双双通过，次数透支出
+    负数）。返回 (是否成功, 剩余次数)。
+    """
     from datetime import date
     init_stock_database()
-    
-    def _record():
+
+    def _consume():
         conn = _get_connection()
         cursor = conn.cursor()
-        
+
         today_str = date.today().isoformat()
-        
-        # 获取当前次数
-        cursor.execute('SELECT last_date, turn_count FROM daily_turntable_limits WHERE uid = ?', (uid,))
-        result = cursor.fetchone()
-        
-        if result is None or result['last_date'] != today_str:
-            new_count = 1
-        else:
-            new_count = result['turn_count'] + 1
-        
-        cursor.execute('''
-            INSERT OR REPLACE INTO daily_turntable_limits (uid, last_date, turn_count)
-            VALUES (?, ?, ?)
-        ''', (uid, today_str, new_count))
-        
+
+        # 同日且未达上限：原子 +1（SQLite 写锁保证并发下逐条串行判定）
+        cursor.execute(
+            'UPDATE daily_turntable_limits SET turn_count = turn_count + 1'
+            ' WHERE uid = ? AND last_date = ? AND turn_count < ?',
+            (uid, today_str, MAX_TURNS_PER_DAY),
+        )
+        if cursor.rowcount == 1:
+            turns = cursor.execute(
+                'SELECT turn_count FROM daily_turntable_limits WHERE uid = ?',
+                (uid,),
+            ).fetchone()['turn_count']
+            conn.commit()
+            conn.close()
+            return True, MAX_TURNS_PER_DAY - int(turns)
+
+        # 当日无记录或跨天：原子抢占当日首次（仅当旧行非今日时才重置为 1）
+        cursor.execute(
+            'INSERT INTO daily_turntable_limits (uid, last_date, turn_count)'
+            ' VALUES (?, ?, 1)'
+            ' ON CONFLICT(uid) DO UPDATE SET'
+            ' last_date = excluded.last_date, turn_count = 1'
+            ' WHERE daily_turntable_limits.last_date != excluded.last_date',
+            (uid, today_str),
+        )
+        ok = cursor.rowcount == 1
         conn.commit()
         conn.close()
-        return MAX_TURNS_PER_DAY - new_count
-    
+        return ok, MAX_TURNS_PER_DAY - 1 if ok else 0
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _record)
+    return await loop.run_in_executor(None, _consume)
 
 
 # ===== 低保领取记录相关函数 =====
@@ -760,23 +788,33 @@ async def check_daily_prek(uid: int) -> bool:
     return await loop.run_in_executor(None, _check)
 
 
-async def record_daily_prek(uid: int):
-    """记录用户今天领了低保"""
+async def claim_daily_prek(uid: int) -> bool:
+    """原子认领当日低保：当日首次返回 True，已领过返回 False。
+
+    判定与记录在同一条 UPSERT 内完成（旧实现先查再记，并发请求可
+    双双通过检查、当天重复领取）。
+    """
     from datetime import date
     init_stock_database()
-    
-    def _record():
+
+    def _claim():
         conn = _get_connection()
         cursor = conn.cursor()
-        
+
         today_str = date.today().isoformat()
-        cursor.execute('''
-            INSERT OR REPLACE INTO daily_prek (uid, last_prek_date)
-            VALUES (?, ?)
-        ''', (uid, today_str))
-        
+        cursor.execute(
+            'INSERT INTO daily_prek (uid, last_prek_date)'
+            ' VALUES (?, ?)'
+            ' ON CONFLICT(uid) DO UPDATE SET'
+            ' last_prek_date = excluded.last_prek_date'
+            ' WHERE daily_prek.last_prek_date != excluded.last_prek_date',
+            (uid, today_str),
+        )
+        ok = cursor.rowcount == 1
+
         conn.commit()
         conn.close()
-    
+        return ok
+
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _record)
+    return await loop.run_in_executor(None, _claim)

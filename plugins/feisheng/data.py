@@ -114,22 +114,75 @@ async def check_daily_cultivation_limit(uid: int, limit: int = 5) -> bool:
     """检查每日修炼限制。返回 True 表示未超限，可以修炼"""
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
-    
+
     data = await get_feisheng_data(uid)
     last_date = data.get("cultivation_date", "")
     count = data.get("daily_cultivation_count", 0)
-    
+
     if last_date != today:
         # 新的一天，重置
         data["cultivation_date"] = today
         data["daily_cultivation_count"] = 0
         await update_feisheng_data(uid, data)
         return True
-        
+
     if count >= limit:
         return False
-        
+
     return True
+
+
+async def consume_cultivation_count(uid: int, limit: int = 5) -> tuple[bool, int]:
+    """原子消耗一次当日修炼次数（跨天自动重置计数）。
+
+    判定与计数在同一条 UPDATE / UPSERT 内完成（旧的「先查再写」在并发
+    修炼下会双双通过、超出每日上限）。返回 (是否成功, 今日已修炼次数)；
+    调用方应把返回的计数写回 fs_data 再整体落库，避免旧值覆盖。
+    """
+    from datetime import datetime
+    init_feisheng_database()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    def _consume():
+        conn = _get_connection()
+        cursor = conn.cursor()
+
+        # 同日且未达上限：原子 +1
+        cursor.execute(
+            'UPDATE user_feisheng SET'
+            ' daily_cultivation_count = daily_cultivation_count + 1,'
+            ' updated_time = CURRENT_TIMESTAMP'
+            ' WHERE uid = ? AND cultivation_date = ?'
+            ' AND daily_cultivation_count < ?',
+            (uid, today, limit),
+        )
+        if cursor.rowcount == 1:
+            count = cursor.execute(
+                'SELECT daily_cultivation_count FROM user_feisheng WHERE uid = ?',
+                (uid,),
+            ).fetchone()['daily_cultivation_count']
+            conn.commit()
+            conn.close()
+            return True, int(count)
+
+        # 无记录或跨天：原子抢占当日首次（仅旧行非今日时才重置为 1）
+        cursor.execute(
+            'INSERT INTO user_feisheng (uid, daily_cultivation_count, cultivation_date)'
+            ' VALUES (?, 1, ?)'
+            ' ON CONFLICT(uid) DO UPDATE SET'
+            ' daily_cultivation_count = 1,'
+            ' cultivation_date = excluded.cultivation_date,'
+            ' updated_time = CURRENT_TIMESTAMP'
+            ' WHERE user_feisheng.cultivation_date != excluded.cultivation_date',
+            (uid, today),
+        )
+        ok = cursor.rowcount == 1
+        conn.commit()
+        conn.close()
+        return ok, 1 if ok else limit
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _consume)
 
 async def increase_cultivation_count(uid: int):
     """增加每日修炼计数"""

@@ -13,11 +13,13 @@ from ..chongwu.pet import get_user_pet, use_user_item
 from .data import (
     get_feisheng_data, increase_pet_ascension_progress, update_feisheng_data,
     get_user_feisheng_items, add_feisheng_item, use_feisheng_item,
-    check_daily_cultivation_limit, get_feisheng_leaderboard
+    check_daily_cultivation_limit, consume_cultivation_count,
+    get_feisheng_leaderboard
 )
 from ...su_manager import is_su, get_excluded_su_uids
 from ...nickname import get_user_nickname
 import aiohttp
+from datetime import datetime
 # 境界列表
 REALMS = ["锻体", "练气", "筑基", "金丹", "具灵", "元婴", "化神", "悟道", "羽化", "渡劫"]
 
@@ -183,14 +185,22 @@ async def handle_cultivate(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     user_money = money.kirastone
     if user_money < cost:
          await cultivate_cmd.finish(f"修炼需要{cost}宝石，你只有{user_money}宝石！")
-    money.kirastone -= cost
-         
-    progress_add = random.randint(5, 10)
-    fs_data["ascension_progress"] = min(100, current_progress + progress_add)
-    # 增加计数
+
+    # 原子消耗当日修炼次数（判定与计数一条 SQL，并发修炼不会超出每日上限）
     if not is_su(uid):
-        fs_data["daily_cultivation_count"] = fs_data.get("daily_cultivation_count", 0) + 1
-        fs_data["cultivation_date"] = fs_data.get("cultivation_date", "") 
+        consumed, today_count = await consume_cultivation_count(uid, 5)
+        if not consumed:
+            # 次数被并发请求抢完：本次不计、不扣宝石
+            await cultivate_cmd.finish("今日修炼次数已达上限（5次）！\n请注意劳逸结合，明日再来。")
+
+    money.kirastone -= cost
+
+    progress_add = random.randint(4, 8)
+    fs_data["ascension_progress"] = min(100, current_progress + progress_add)
+    # 计数以原子消耗的 SQL 结果为准写回，避免旧值覆盖
+    if not is_su(uid):
+        fs_data["daily_cultivation_count"] = today_count
+        fs_data["cultivation_date"] = datetime.now().strftime("%Y-%m-%d")
     
     await update_feisheng_data(uid, fs_data)
     

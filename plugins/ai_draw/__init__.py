@@ -148,6 +148,61 @@ async def check_daily_limit(uid: int) -> bool:
     return await loop.run_in_executor(None, _do)
 
 
+async def try_consume_daily_draw(uid: int) -> bool:
+    """原子预约今日一次画图/修图名额（判定与计数一条 SQL，并发请求
+    不会超出每日上限；SU 豁免不计数恒成功）。失败路径用 refund_daily_draw
+    退还。"""
+    if is_su_contributor(uid):
+        return True
+    loop = __import__("asyncio").get_event_loop()
+    today = _today()
+
+    def _do():
+        with _get_db() as conn:
+            _ensure_ai_draw_usage_schema(conn)
+            # 同日未达上限：原子 +1
+            cur = conn.execute(
+                "UPDATE ai_draw_usage SET count=count+1"
+                " WHERE uid=? AND date=? AND count<?",
+                (uid, today, koinori_config.daily_limit),
+            )
+            if cur.rowcount == 1:
+                conn.commit()
+                return True
+            # 无记录或跨天：原子抢占当日首次（仅旧行非今日时重置为 1）
+            cur = conn.execute(
+                "INSERT INTO ai_draw_usage (uid, date, count) VALUES (?, ?, 1)"
+                " ON CONFLICT(uid) DO UPDATE SET date=excluded.date, count=1"
+                " WHERE ai_draw_usage.date != excluded.date",
+                (uid, today),
+            )
+            ok = cur.rowcount == 1
+            conn.commit()
+            return ok
+
+    return await loop.run_in_executor(None, _do)
+
+
+async def refund_daily_draw(uid: int) -> None:
+    """画图/修图失败时退还已预约的今日名额（原子递减，当日下限 0）。"""
+    if is_su_contributor(uid):
+        return
+    loop = __import__("asyncio").get_event_loop()
+    today = _today()
+
+    def _do():
+        with _get_db() as conn:
+            _ensure_ai_draw_usage_schema(conn)
+            conn.execute(
+                "UPDATE ai_draw_usage SET count=count-1"
+                " WHERE uid=? AND date=? AND count>0",
+                (uid, today),
+            )
+            conn.commit()
+
+    await loop.run_in_executor(None, _do)
+
+
 def _get_free_draw_count_sync(uid: int) -> int:
     with _get_db() as conn:
         _ensure_ai_draw_usage_schema(conn)
@@ -190,41 +245,6 @@ async def add_free_draw_count(uid: int, amount: int) -> int:
     """增加长期有效的免费画图次数，返回增加后的剩余次数。"""
     loop = __import__("asyncio").get_event_loop()
     return await loop.run_in_executor(None, _add_free_draw_count_sync, uid, amount)
-
-
-async def record_draw_success(uid: int) -> None:
-    """成功生成图片后递增今日次数。level 0 SU 不计入日限。"""
-    if is_su_contributor(uid):
-        return
-
-    loop = __import__("asyncio").get_event_loop()
-    today = _today()
-
-    def _do():
-        with _get_db() as conn:
-            _ensure_ai_draw_usage_schema(conn)
-            row = conn.execute(
-                "SELECT date FROM ai_draw_usage WHERE uid=?", (uid,)
-            ).fetchone()
-
-            if row is None:
-                conn.execute(
-                    "INSERT INTO ai_draw_usage (uid, date, count) VALUES (?, ?, 1)",
-                    (uid, today),
-                )
-            elif row["date"] != today:
-                conn.execute(
-                    "UPDATE ai_draw_usage SET date=?, count=1 WHERE uid=?",
-                    (today, uid),
-                )
-            else:
-                conn.execute(
-                    "UPDATE ai_draw_usage SET count=count+1 WHERE uid=? AND date=?",
-                    (uid, today),
-                )
-            conn.commit()
-
-    await loop.run_in_executor(None, _do)
 
 
 async def reset_draw_usage(target_uid: int | None = None) -> int:
@@ -644,8 +664,13 @@ async def do_draw(
     if uid in _drawing_uids:
         await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~")
 
+    # 原子预约今日名额（判定与计数一条 SQL；此后的失败路径均需退还）
+    if not await try_consume_daily_draw(uid):
+        await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
+
     payment = pay_draw_cost(uid)
     if not payment:
+        await refund_daily_draw(uid)
         await cmd.finish("扣除金币失败，请稍后再试。")
 
     await cmd.send(
@@ -668,14 +693,15 @@ async def do_draw(
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
         refund_text = refund_draw_payment(uid, payment)
+        await refund_daily_draw(uid)
         logger.error(f"画图失败: {e}")
         await cmd.finish(f"画图失败: {e}\n{refund_text}")
     except Exception as e:
         refund_text = refund_draw_payment(uid, payment)
+        await refund_daily_draw(uid)
         logger.error(f"画图异常: {type(e).__name__}: {e}")
         await cmd.finish(f"画图出错了: {e}\n{refund_text}")
     else:
-        await record_draw_success(uid)
         try:
             base_text = success_text or f"提示词：\n{user_text}"
             size_quality_info = f"\n预期尺寸：{draw_size} | 质量：{draw_quality}"
@@ -730,9 +756,14 @@ async def do_edit(
     if uid in _drawing_uids:
         await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~")
 
+    # 原子预约今日名额（判定与计数一条 SQL；此后的失败路径均需退还）
+    if not await try_consume_daily_draw(uid):
+        await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
+
     prompt = user_text.strip()
     payment = pay_draw_cost(uid, allow_free_draw=False)
     if not payment:
+        await refund_daily_draw(uid)
         await cmd.finish("扣除金币失败，请稍后再试。")
 
     edit_size = koinori_config.ai_draw_size
@@ -751,14 +782,15 @@ async def do_edit(
         image_msg = build_image_msg(event, image_bytes)
     except RuntimeError as e:
         refund_text = refund_draw_payment(uid, payment)
+        await refund_daily_draw(uid)
         logger.error(f"修图失败: {e}")
         await cmd.finish(f"修图失败: {e}\n{refund_text}")
     except Exception as e:
         refund_text = refund_draw_payment(uid, payment)
+        await refund_daily_draw(uid)
         logger.error(f"修图异常: {type(e).__name__}: {e}")
         await cmd.finish(f"修图出错了: {e}\n{refund_text}")
     else:
-        await record_draw_success(uid)
         try:
             result_msg = _build_text_image_message(
                 f"提示词：\n{prompt}\n预期尺寸：{edit_size} | 质量：{edit_quality}",

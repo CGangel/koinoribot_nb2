@@ -39,11 +39,11 @@ from .stock_utils import (
     generate_stock_chart,
     # 幸运游戏相关
     update_gamble_record, get_all_gamble_record, get_user_gamble_record,
-    check_daily_gamble_limit, record_gamble_today,
+    check_daily_gamble_limit, claim_daily_gamble,
     # 转盘相关
-    MAX_TURNS_PER_DAY, check_turntable_limit, record_turntable_spin,
+    MAX_TURNS_PER_DAY, check_turntable_limit, consume_turntable_spin,
     # 低保相关
-    check_daily_prek, record_daily_prek
+    check_daily_prek, claim_daily_prek
 )
 
 # uid_manager 用于 QQ号转UID
@@ -716,8 +716,8 @@ async def handle_start_gamble(event: Event, bot: Bot, uid: int = Depends(get_uid
     if uid in gambling_sessions and gambling_sessions[uid].get('active', False):
         await gamble_start_cmd.finish("你正在进行幸运游戏，请先完成或使用 '见好就收' 结束当前游戏。")
     
-    # 检查每日限制
-    
+    # 检查每日限制（预检提示；权威判定在「确认」时的原子认领）
+
     if not await check_daily_gamble_limit(uid) and not is_su(uid):
         await gamble_start_cmd.finish("你今天已经赌过了，明天再来吧！人生的大起大落可经不起天天折腾哦。")
     
@@ -774,16 +774,19 @@ async def handle_confirm_gamble(event: Event, bot: Bot, uid: int = Depends(get_u
     if luckygold < 1:
         del gambling_sessions[uid]
         await gamble_confirm_cmd.finish("你没有足够的幸运币参与幸运游戏。")
-    
+
+    # 原子认领当日资格（判定与记录一条 UPSERT，并发下当天只会开赌一次）
+    if not is_su(uid) and not await claim_daily_gamble(uid):
+        del gambling_sessions[uid]
+        await gamble_confirm_cmd.finish("你今天已经赌过了，明天再来吧！人生的大起大落可经不起天天折腾哦。")
+
     money.luckygold -= 1
     
     # 标记确认，激活会话
     gambling_sessions[uid]['confirmed'] = True
     gambling_sessions[uid]['active'] = True
     gambling_sessions[uid]['round'] = 1
-    
-    await record_gamble_today(uid)
-    
+
     result = perform_gamble_round(uid)
     
     if not result["success"]:
@@ -1087,21 +1090,25 @@ async def handle_turntable(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     if gold <= 0:
         await turntable_cmd.finish("欠债/失信用户，禁止游戏。")
     
-    # 检查每日次数
-    
+    # 检查每日次数（预检提示；权威判定在下方原子扣减）
+
     unlimited_turntable = is_su_contributor(uid)
     can_spin = (await check_turntable_limit(uid))[0]
     if not can_spin and not unlimited_turntable:
         await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！")
-    
+
     # 检查幸运币
     lucky_coins = money.luckygold
     if lucky_coins < 1:
         await turntable_cmd.finish("您的幸运币不足，无法启动转盘哦。")
-    
-    money.luckygold -= 1
+
+    # 原子扣减每日次数（判定与扣减一条 SQL，并发下不会透支出负数）
     if not unlimited_turntable:
-        remaining_turns = await record_turntable_spin(uid)
+        consumed, remaining_turns = await consume_turntable_spin(uid)
+        if not consumed:
+            await turntable_cmd.finish(f"您今天的 {MAX_TURNS_PER_DAY} 次机会已经用完啦，明天再来吧！")
+
+    money.luckygold -= 1
     
     # 抽取奖品
     prize_tier = draw_prize()
@@ -1150,8 +1157,9 @@ async def handle_dibao(event: Event, bot: Bot, uid: int = Depends(get_uid)):
     if user_gold < 0:
         await dibao_cmd.finish("欠债/失信用户，禁止操作。")
     
-    # 记录领取
-    await record_daily_prek(uid)
+    # 原子认领当日低保（判定与记录一条 UPSERT，并发下当天只会领一次）
+    if not await claim_daily_prek(uid):
+        await dibao_cmd.finish("你今天已经领过了，明天再来吧！")
     
     # 发放低保
     pet = await get_user_pet(uid)
