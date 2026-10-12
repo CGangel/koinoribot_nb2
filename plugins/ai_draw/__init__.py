@@ -13,6 +13,7 @@ import asyncio
 import aiohttp
 from dataclasses import dataclass
 from nonebot import on_command, get_driver
+from nonebot.exception import FinishedException
 from nonebot.adapters import Event, Bot
 from nonebot.adapters import Message as AdapterMessage
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
@@ -664,55 +665,73 @@ async def do_draw(
     if uid in _drawing_uids:
         await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~")
 
-    # 原子预约今日名额（判定与计数一条 SQL；此后的失败路径均需退还）
-    if not await try_consume_daily_draw(uid):
-        await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
-
-    payment = pay_draw_cost(uid)
-    if not payment:
-        await refund_daily_draw(uid)
-        await cmd.finish("扣除金币失败，请稍后再试。")
-
-    await cmd.send(
-        format_draw_progress(
-            uid,
-            f"少女画图中…\n已扣除{koinori_config.draw_cost}金币",
-            payment,
-            progress_text,
-        )
-    )
-
+    # 检查后立即占位：检查与占位之间不允许出现 await，防止并发双双通过
     _drawing_uids.add(uid)
+    payment = None
+    reserved = False
     try:
-        image_bytes = await generate_image(
-            koinori_config.gpt_image_api_key,
-            user_text,
-            size=draw_size,
-            quality=draw_quality,
-        )
-        image_msg = build_image_msg(event, image_bytes)
-    except RuntimeError as e:
-        refund_text = refund_draw_payment(uid, payment)
-        await refund_daily_draw(uid)
-        logger.error(f"画图失败: {e}")
-        await cmd.finish(f"画图失败: {e}\n{refund_text}")
-    except Exception as e:
-        refund_text = refund_draw_payment(uid, payment)
-        await refund_daily_draw(uid)
-        logger.error(f"画图异常: {type(e).__name__}: {e}")
-        await cmd.finish(f"画图出错了: {e}\n{refund_text}")
-    else:
-        try:
-            base_text = success_text or f"提示词：\n{user_text}"
-            size_quality_info = f"\n预期尺寸：{draw_size} | 质量：{draw_quality}"
-            result_msg = _build_text_image_message(
-                base_text + size_quality_info,
-                image_msg,
+        # 原子预约今日名额（判定与计数一条 SQL；此后的失败路径均需退还）
+        if not await try_consume_daily_draw(uid):
+            await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
+        reserved = True
+
+        payment = pay_draw_cost(uid)
+        if not payment:
+            await refund_daily_draw(uid)
+            await cmd.finish("扣除金币失败，请稍后再试。")
+
+        await cmd.send(
+            format_draw_progress(
+                uid,
+                f"少女画图中…\n已扣除{koinori_config.draw_cost}金币",
+                payment,
+                progress_text,
             )
-            await cmd.send(result_msg)
-        except ActionFailed:
-            logger.warning("发送图片超时，但图片可能已送达")
-        await cmd.finish()
+        )
+
+        try:
+            image_bytes = await generate_image(
+                koinori_config.gpt_image_api_key,
+                user_text,
+                size=draw_size,
+                quality=draw_quality,
+            )
+            image_msg = build_image_msg(event, image_bytes)
+        except RuntimeError as e:
+            refund_text = refund_draw_payment(uid, payment)
+            await refund_daily_draw(uid)
+            logger.error(f"画图失败: {e}")
+            await cmd.finish(f"画图失败: {e}\n{refund_text}")
+        except Exception as e:
+            refund_text = refund_draw_payment(uid, payment)
+            await refund_daily_draw(uid)
+            logger.error(f"画图异常: {type(e).__name__}: {e}")
+            await cmd.finish(f"画图出错了: {e}\n{refund_text}")
+        else:
+            try:
+                base_text = success_text or f"提示词：\n{user_text}"
+                size_quality_info = f"\n预期尺寸：{draw_size} | 质量：{draw_quality}"
+                result_msg = _build_text_image_message(
+                    base_text + size_quality_info,
+                    image_msg,
+                )
+                await cmd.send(result_msg)
+            except ActionFailed:
+                logger.warning("发送图片超时，但图片可能已送达")
+            await cmd.finish()
+    except FinishedException:
+        raise
+    except Exception:
+        # 预约后的意外异常（发送/数据库等）：退还名额与已扣费用后原样上抛
+        logger.error("画图流程意外异常，执行回滚", exc_info=True)
+        try:
+            if reserved:
+                await refund_daily_draw(uid)
+            if payment is not None:
+                refund_draw_payment(uid, payment)
+        except Exception:
+            logger.error("画图失败回滚异常", exc_info=True)
+        raise
     finally:
         _drawing_uids.discard(uid)
 
@@ -756,50 +775,68 @@ async def do_edit(
     if uid in _drawing_uids:
         await cmd.finish("你有一个画图请求正在处理中，请等待完成后再试~")
 
-    # 原子预约今日名额（判定与计数一条 SQL；此后的失败路径均需退还）
-    if not await try_consume_daily_draw(uid):
-        await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
-
-    prompt = user_text.strip()
-    payment = pay_draw_cost(uid, allow_free_draw=False)
-    if not payment:
-        await refund_daily_draw(uid)
-        await cmd.finish("扣除金币失败，请稍后再试。")
-
-    edit_size = koinori_config.ai_draw_size
-    user_gold_after = money.of(uid).gold
-    await cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
-
+    # 检查后立即占位：检查与占位之间不允许出现 await，防止并发双双通过
     _drawing_uids.add(uid)
+    payment = None
+    reserved = False
     try:
-        image_bytes = await generate_image_edit(
-            koinori_config.gpt_image_api_key,
-            prompt,
-            ref_image,
-            size=edit_size,
-            quality=edit_quality,
-        )
-        image_msg = build_image_msg(event, image_bytes)
-    except RuntimeError as e:
-        refund_text = refund_draw_payment(uid, payment)
-        await refund_daily_draw(uid)
-        logger.error(f"修图失败: {e}")
-        await cmd.finish(f"修图失败: {e}\n{refund_text}")
-    except Exception as e:
-        refund_text = refund_draw_payment(uid, payment)
-        await refund_daily_draw(uid)
-        logger.error(f"修图异常: {type(e).__name__}: {e}")
-        await cmd.finish(f"修图出错了: {e}\n{refund_text}")
-    else:
+        # 原子预约今日名额（判定与计数一条 SQL；此后的失败路径均需退还）
+        if not await try_consume_daily_draw(uid):
+            await cmd.finish(f"你一天只能画 {koinori_config.daily_limit} 张图，明天再来吧~")
+        reserved = True
+
+        prompt = user_text.strip()
+        payment = pay_draw_cost(uid, allow_free_draw=False)
+        if not payment:
+            await refund_daily_draw(uid)
+            await cmd.finish("扣除金币失败，请稍后再试。")
+
+        edit_size = koinori_config.ai_draw_size
+        user_gold_after = money.of(uid).gold
+        await cmd.send(f"少女修图中…\n已扣除 {koinori_config.draw_cost} 金币 (剩余 {user_gold_after})")
+
         try:
-            result_msg = _build_text_image_message(
-                f"提示词：\n{prompt}\n预期尺寸：{edit_size} | 质量：{edit_quality}",
-                image_msg,
+            image_bytes = await generate_image_edit(
+                koinori_config.gpt_image_api_key,
+                prompt,
+                ref_image,
+                size=edit_size,
+                quality=edit_quality,
             )
-            await cmd.send(result_msg)
-        except ActionFailed:
-            logger.warning("修图发送图片超时，但图片可能已送达")
-        await cmd.finish()
+            image_msg = build_image_msg(event, image_bytes)
+        except RuntimeError as e:
+            refund_text = refund_draw_payment(uid, payment)
+            await refund_daily_draw(uid)
+            logger.error(f"修图失败: {e}")
+            await cmd.finish(f"修图失败: {e}\n{refund_text}")
+        except Exception as e:
+            refund_text = refund_draw_payment(uid, payment)
+            await refund_daily_draw(uid)
+            logger.error(f"修图异常: {type(e).__name__}: {e}")
+            await cmd.finish(f"修图出错了: {e}\n{refund_text}")
+        else:
+            try:
+                result_msg = _build_text_image_message(
+                    f"提示词：\n{prompt}\n预期尺寸：{edit_size} | 质量：{edit_quality}",
+                    image_msg,
+                )
+                await cmd.send(result_msg)
+            except ActionFailed:
+                logger.warning("修图发送图片超时，但图片可能已送达")
+            await cmd.finish()
+    except FinishedException:
+        raise
+    except Exception:
+        # 预约后的意外异常（发送/数据库等）：退还名额与已扣费用后原样上抛
+        logger.error("修图流程意外异常，执行回滚", exc_info=True)
+        try:
+            if reserved:
+                await refund_daily_draw(uid)
+            if payment is not None:
+                refund_draw_payment(uid, payment)
+        except Exception:
+            logger.error("修图失败回滚异常", exc_info=True)
+        raise
     finally:
         _drawing_uids.discard(uid)
 

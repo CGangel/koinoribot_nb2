@@ -14,12 +14,12 @@ from .data import (
     get_feisheng_data, increase_pet_ascension_progress, update_feisheng_data,
     get_user_feisheng_items, add_feisheng_item, use_feisheng_item,
     check_daily_cultivation_limit, consume_cultivation_count,
+    add_cultivation_progress, refund_cultivation_count,
     get_feisheng_leaderboard
 )
 from ...su_manager import is_su, get_excluded_su_uids
 from ...nickname import get_user_nickname
 import aiohttp
-from datetime import datetime
 # 境界列表
 REALMS = ["锻体", "练气", "筑基", "金丹", "具灵", "元婴", "化神", "悟道", "羽化", "渡劫"]
 
@@ -159,8 +159,8 @@ cultivate_cmd = on_command("修炼", priority=5, block=True)
 
 @cultivate_cmd.handle()
 async def handle_cultivate(event: Event, bot: Bot, uid: int = Depends(get_uid)):
-    #检查每日限制
-    if not await check_daily_cultivation_limit(uid, 5):
+    #检查每日限制（SU 豁免：既不计数也不受门检拦截）
+    if not is_su(uid) and not await check_daily_cultivation_limit(uid, 5):
         await cultivate_cmd.finish("今日修炼次数已达上限（5次）！\n请注意劳逸结合，明日再来。")
 
     fs_data = await get_feisheng_data(uid)
@@ -187,6 +187,7 @@ async def handle_cultivate(event: Event, bot: Bot, uid: int = Depends(get_uid)):
          await cultivate_cmd.finish(f"修炼需要{cost}宝石，你只有{user_money}宝石！")
 
     # 原子消耗当日修炼次数（判定与计数一条 SQL，并发修炼不会超出每日上限）
+    today_count = None
     if not is_su(uid):
         consumed, today_count = await consume_cultivation_count(uid, 5)
         if not consumed:
@@ -195,23 +196,28 @@ async def handle_cultivate(event: Event, bot: Bot, uid: int = Depends(get_uid)):
 
     money.kirastone -= cost
 
+    # 进度单条 SQL 原子累加并取回（不整行回写，避免并发覆盖计数/进度）
     progress_add = random.randint(4, 8)
-    fs_data["ascension_progress"] = min(100, current_progress + progress_add)
-    # 计数以原子消耗的 SQL 结果为准写回，避免旧值覆盖
-    if not is_su(uid):
-        fs_data["daily_cultivation_count"] = today_count
-        fs_data["cultivation_date"] = datetime.now().strftime("%Y-%m-%d")
-    
-    await update_feisheng_data(uid, fs_data)
-    
+    try:
+        new_progress = await add_cultivation_progress(uid, progress_add)
+    except Exception:
+        # 进度写入失败：退还宝石与当日次数，修炼作废
+        money.kirastone += cost
+        if not is_su(uid):
+            try:
+                await refund_cultivation_count(uid)
+            except Exception:
+                logger.error("修炼次数退还失败", exc_info=True)
+        raise
+
     realm_name = get_realm_name(current_realm)
-    new_progress = fs_data["ascension_progress"]
     stage = get_stage_name(new_progress)
-    
+
     msg = "🧘开始修炼...\n"
     msg += f"消耗{cost}宝石，吸纳天地灵气...\n"
     msg += f"进度+{progress_add}，当前境界：{realm_name}境 {stage} ({new_progress}%)"
-    msg += f"\n(今日已修炼 {fs_data['daily_cultivation_count']}/5 次)"
+    shown_count = today_count if today_count is not None else fs_data.get("daily_cultivation_count", 0)
+    msg += f"\n(今日已修炼 {shown_count}/5 次)"
     
     if new_progress >= 100:
         if current_realm >= len(REALMS) - 1:

@@ -110,6 +110,62 @@ async def update_feisheng_data(uid: int, data: dict):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _update)
 
+async def add_cultivation_progress(uid: int, amount: int) -> int:
+    """原子累加修炼进度（封顶 100），返回累加后的进度值。
+
+    整行「读取→改内存→REPLACE 回写」在并发修炼下会互相覆盖（进度
+    少加、计数回退），进度与计数两列只经本函数与
+    consume_cultivation_count 的单条 SQL 变更，不再整行回写。
+    """
+    init_feisheng_database()
+
+    def _add():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        capped = min(100, max(0, int(amount)))
+        cursor.execute(
+            'INSERT INTO user_feisheng (uid, ascension_progress) VALUES (?, ?)'
+            ' ON CONFLICT(uid) DO UPDATE SET'
+            ' ascension_progress = MIN(100, user_feisheng.ascension_progress'
+            '   + excluded.ascension_progress),'
+            ' updated_time = CURRENT_TIMESTAMP',
+            (uid, capped),
+        )
+        progress = cursor.execute(
+            'SELECT ascension_progress FROM user_feisheng WHERE uid = ?', (uid,)
+        ).fetchone()['ascension_progress']
+        conn.commit()
+        conn.close()
+        return int(progress)
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _add)
+
+
+async def refund_cultivation_count(uid: int) -> None:
+    """修炼后续步骤失败时退还已消耗的当日次数（原子递减，当日下限 0）。"""
+    from datetime import datetime
+    init_feisheng_database()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    def _refund():
+        conn = _get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE user_feisheng SET'
+            ' daily_cultivation_count = daily_cultivation_count - 1,'
+            ' updated_time = CURRENT_TIMESTAMP'
+            ' WHERE uid = ? AND cultivation_date = ?'
+            ' AND daily_cultivation_count > 0',
+            (uid, today),
+        )
+        conn.commit()
+        conn.close()
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _refund)
+
+
 async def check_daily_cultivation_limit(uid: int, limit: int = 5) -> bool:
     """检查每日修炼限制。返回 True 表示未超限，可以修炼"""
     from datetime import datetime
