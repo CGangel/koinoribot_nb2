@@ -971,6 +971,52 @@ def _migrate_shop_currency() -> None:
                 logger.error(f"[config_store] {field} 补齐 currency 失败: {e}")
 
 
+def norm_bool(value, default: bool = False) -> bool:
+    """把配置面板可能存成字符串的布尔值规范成 bool。
+
+    面板二级子页早期版本把条目内的布尔按文本框序列化成 "false"/"true"
+    字符串入库，而 bool("false") 恒为 True，读取层必须显式解析字符串。
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    return default
+
+
+def _migrate_bait_unlimited() -> None:
+    """把面板早期存成字符串的鱼饵 unlimited 值规范回真布尔。
+
+    旧版面板二级子页按文本框序列化嵌套布尔（unlimited: "false"），读取层
+    bool("false") 恒为真，导致所有商店鱼饵被当成无限使用（不消耗、不可
+    购买、面板显示 ∞）；此处一次性修正存量数据，其余属性原样保留。
+    """
+    table = getattr(config, "fish_shop_baits", None)
+    if not isinstance(table, dict):
+        return
+    changed = False
+    filled = {}
+    for item_id, entry in table.items():
+        if isinstance(entry, dict) and isinstance(entry.get("unlimited"), str):
+            filled[item_id] = {
+                **entry,
+                "unlimited": norm_bool(entry["unlimited"]),
+            }
+            changed = True
+        else:
+            filled[item_id] = entry
+    if changed:
+        try:
+            update_config({"fish_shop_baits": filled})
+            logger.info("[config_store] 鱼饵 unlimited 已规范为布尔值（修复无限鱼饵问题）")
+        except ValueError as e:
+            logger.error(f"[config_store] 鱼饵 unlimited 规范化失败: {e}")
+
+
 # 药水效果实装前的占位描述（仅用于一次性迁移识别，勿再改动）
 _POTION_LEGACY_DESCS = {
     "potion_bigfish": "似乎更容易钓上大鱼（效果待实装）",
@@ -1073,6 +1119,8 @@ def init_config_store(
     _migrate_fish_collection_rewards()
     # 商店表存量条目补齐 currency 计价货币键（面板可见可编辑）
     _migrate_shop_currency()
+    # 鱼饵 unlimited 字符串布尔规范回真布尔（修复无限鱼饵问题）
+    _migrate_bait_unlimited()
     # 药水效果实装：占位描述更新为定稿文案（自定义描述保留）
     _migrate_potion_descs()
     logger.info(f"[config_store] 配置加载完成：{loaded} 项（数据库 {_db_path}）")

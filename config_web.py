@@ -742,7 +742,9 @@ function renderDict(f) {
   }
 
   if (!entries.length) wrap.appendChild(el('div', 'empty-tip', '（空）'));
-  entries.forEach(([k, v]) => addRow(k, v, typeof v === 'number' ? 'number' : 'string'));
+  entries.forEach(([k, v]) => addRow(k, v,
+    typeof v === 'number' ? 'number'
+      : (typeof v === 'boolean' ? 'boolean' : 'string')));
   if (!fixedEntries) {
     const add = el('button', 'add', '+ 添加键值对');
     add.onclick = () => {
@@ -768,7 +770,8 @@ function entryTemplate(entriesObj) {
     for (const [sk, sv] of Object.entries(v)) {
       if (sk in tpl) continue;
       tpl[sk] = (typeof sv === 'object' && sv !== null) ? {}
-             : (typeof sv === 'number' ? 0 : '');
+             : (typeof sv === 'boolean' ? false
+             : (typeof sv === 'number' ? 0 : ''));
     }
   }
   return tpl;
@@ -833,7 +836,8 @@ function renderFieldPage(f) {
     } else {
       input = document.createElement('input');
       input.type = 'text';
-      input.dataset.etype = typeof sv === 'number' ? 'number' : 'string';
+      input.dataset.etype = typeof sv === 'number' ? 'number'
+        : (typeof sv === 'boolean' ? 'boolean' : 'string');
       input.value = sv === undefined || sv === null ? '' : String(sv);
       input.addEventListener('input', syncEntries);
     }
@@ -968,7 +972,12 @@ function renderFieldPage(f) {
 
 // ================== 采集与保存 ==================
 
-function coerce(text, etype) { return etype === 'number' ? Number(text) : text; }
+function coerce(text, etype) {
+  // boolean：条目内布尔以 "true"/"false" 文本呈现，按内容解析，
+  // 避免把 "false" 字符串存库（后端 bool("false") 恒为真）
+  if (etype === 'boolean') return String(text).trim().toLowerCase() === 'true';
+  return etype === 'number' ? Number(text) : text;
+}
 
 function isChanged(f) {
   // 打码字符串：占位符即打码值，草稿非空才算修改

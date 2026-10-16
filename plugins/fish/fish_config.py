@@ -33,6 +33,7 @@ from ...config_store import (
     _FISH_COLLECTION_REWARDS_DEFAULT,
     _FISH_EGG_ITEMS_DEFAULT,
     _FISH_POTION_ITEMS_DEFAULT,
+    norm_bool,
 )
 
 # ================== 稀有度（品种分层，固定 5 档） ==================
@@ -333,7 +334,11 @@ def _norm_line(entry) -> dict | None:
 
 
 def _norm_bait(entry) -> dict | None:
-    """规范化鱼饵条目；unlimited 为 True 表示无限使用"""
+    """规范化鱼饵条目；unlimited 为 True 表示无限使用。
+
+    unlimited 经 norm_bool 解析：面板旧版会把嵌套布尔存成字符串
+    （"false"/"true"），直接 bool() 会把 "false" 也判为无限。
+    """
     if not isinstance(entry, dict) or not str(entry.get("name", "")).strip():
         return None
     try:
@@ -345,7 +350,7 @@ def _norm_bait(entry) -> dict | None:
         "price": price,
         "currency": _norm_currency(entry.get("currency"), "gold"),
         "desc": str(entry.get("desc", "") or ""),
-        "unlimited": bool(entry.get("unlimited", False)),
+        "unlimited": norm_bool(entry.get("unlimited")),
         "rarity_weights": _norm_weights(
             entry.get("rarity_weights"), RARITY_ORDER,
             _norm_weights(config.fish_rarity_weights, RARITY_ORDER,
