@@ -93,60 +93,99 @@ _FISH_SPECIES_DEFAULT: dict = {
 #   - 鱼饵：决定「稀有度」概率分布；售价为金币
 # 某级别内的长度完全由随机数决定（见 fish_grade_ranges）。
 
+# 商店计价货币（currency 键）：gold 金币 / kirastone 宝石 / luckygold 幸运币，
+# 每件商品可单独配置（只作用于购买价；鱼竿/鱼线的修理固定金币；
+# 读取层对非法值按类别回落）。目录唯一数据源在此（面板下拉与
+# fish_config 展示共用，避免两处漂移）。
+FISH_CURRENCIES: dict[str, str] = {
+    "gold": "金币",
+    "kirastone": "宝石",
+    "luckygold": "幸运币",
+}
 _FISH_RODS_DEFAULT: dict = {
-    "rod_basic": {"name": "木质鱼竿", "price": 0,
+    "rod_basic": {"name": "木质鱼竿", "price": 0, "currency": "luckygold",
                   "desc": "溪边削出的第一根竿，握在手里刚刚好",
                   "durability": None, "repair_price": 0,
                   "grade_weights": {"D": 60, "C": 20, "B": 14, "A": 5, "S": 1, "X": 0}},
-    "rod_fiberglass": {"name": "碳纤维鱼竿", "price": 50,
+    "rod_fiberglass": {"name": "碳纤维鱼竿", "price": 50, "currency": "luckygold",
                        "desc": "轻得几乎感觉不到，却韧得能扛住大鱼",
                        "durability": 30, "repair_price": 5000,
                        "grade_weights": {"D": 47, "C": 25, "B": 18, "A": 7, "S": 2, "X": 1}},
-    "rod_carbon": {"name": "樱花鱼竿", "price": 200,
+    "rod_carbon": {"name": "樱花鱼竿", "price": 200, "currency": "luckygold",
                    "desc": "缠着樱花纹的竿，花开时节鱼格外活跃",
                    "durability": 60, "repair_price": 50000,
                    "grade_weights": {"D": 35, "C": 28, "B": 20, "A": 10, "S": 5, "X": 2}},
-    "rod_master": {"name": "海神鱼竿", "price": 800,
+    "rod_master": {"name": "海神鱼竿", "price": 800, "currency": "luckygold",
                    "desc": "传说由海神鳞甲锻成，深海巨物也难逃",
                    "durability": 100, "repair_price": 100000,
                    "grade_weights": {"D": 30, "C": 25, "B": 25, "A": 10, "S": 6, "X": 4}},
 }
 
 _FISH_LINES_DEFAULT: dict = {
-    "line_basic": {"name": "尼龙鱼线", "price": 0,
+    "line_basic": {"name": "尼龙鱼线", "price": 0, "currency": "luckygold",
                    "desc": "最常见的尼龙线，简单可靠",
                    "durability": None, "repair_price": 0, "luck": 0},
-    "line_nylon": {"name": "碳素鱼线", "price": 50,
+    "line_nylon": {"name": "碳素鱼线", "price": 50, "currency": "luckygold",
                    "desc": "碳素编织，水下的动静再难逃过",
                    "durability": 30, "repair_price": 5000, "luck": 5},
-    "line_braided": {"name": "樱花鱼线", "price": 200,
+    "line_braided": {"name": "樱花鱼线", "price": 200, "currency": "luckygold",
                      "desc": "泛着樱花柔光，鱼儿靠近便不再挣扎",
                      "durability": 60, "repair_price": 50000, "luck": 10},
-    "line_dragon": {"name": "大师鱼线", "price": 800,
+    "line_dragon": {"name": "大师鱼线", "price": 800, "currency": "luckygold",
                     "desc": "名匠手作的传世之线，系住无数传说",
                     "durability": 100, "repair_price": 100000, "luck": 25},
 }
 
 _FISH_BAITS_DEFAULT: dict = {
-    "bait_basic": {"name": "普通鱼饵", "price": 0, "desc": "水里到处都有，管够",
+    "bait_basic": {"name": "普通鱼饵", "price": 0, "currency": "gold",
+                   "desc": "水里到处都有，管够",
                    "unlimited": True,
                    "rarity_weights": {"普通": 65, "稀有": 29, "史诗": 5.75,
                                       "传说": 0.25, "神话": 0}},
-    "bait_worm": {"name": "秘制鱼饵", "price": 100,
+    "bait_worm": {"name": "秘制鱼饵", "price": 100, "currency": "gold",
                   "desc": "老师傅加了几味料，说不清但好使",
                   "unlimited": False,
                   "rarity_weights": {"普通": 55, "稀有": 34, "史诗": 10.5,
                                      "传说": 0.5, "神话": 0}},
-    "bait_shrimp": {"name": "樱花鱼饵", "price": 1000,
+    "bait_shrimp": {"name": "樱花鱼饵", "price": 1000, "currency": "gold",
                     "desc": "花瓣揉进饵料，香气能引来稀客",
                     "unlimited": False,
                     "rarity_weights": {"普通": 45, "稀有": 38, "史诗": 16,
                                        "传说": 0.75, "神话": 0.25}},
-    "bait_lucky": {"name": "梦幻鱼饵", "price": 10000,
+    "bait_lucky": {"name": "梦幻鱼饵", "price": 10000, "currency": "gold",
                    "desc": "如雾如幻，连传说里的鱼都为它现身",
                    "unlimited": False,
                    "rarity_weights": {"普通": 25, "稀有": 40, "史诗": 33.2,
                                       "传说": 1.2, "神话": 0.6}},
+}
+
+# 彩蛋单品目录（独立于稀有度的特殊钓获栏）：钓鱼先按 fish_egg_rate 判定
+# 是否命中彩蛋，命中则按各单品 weight 权重抽取一件（彩蛋钓获不判定空军、
+# 不占鱼类图鉴档位，以「彩蛋」档单独记录）。条目与名称固定不可增删改。
+# 鱼饵包/无人认领的钱包/药水包三件固定钓到自动开启（无法储存，内容效果
+# 待补充）；钓鱼扫荡劵存入钓鱼背包（fish_props）。
+_FISH_EGG_ITEMS_DEFAULT: dict = {
+    "egg_bait_pack": {"name": "鱼饵包", "weight": 20,
+                      "desc": "一个鱼饵包裹，掉落随机鱼饵", "art": ""},
+    "egg_wallet": {"name": "无人认领的钱包", "weight": 20,
+                   "desc": "不知是谁掉在河里的钱包", "art": ""},
+    "egg_potion_pack": {"name": "药水包", "weight": 10,
+                        "desc": "一个药水包裹，掉落随机药水", "art": ""},
+    "egg_sweep_ticket": {"name": "钓鱼扫荡劵", "weight": 50,
+                         "desc": "一键钓鱼扫荡劵", "art": ""},
+}
+
+# 药水目录（固定 3 种，由彩蛋「药水包」随机掉落）：装备后生效（同时只能
+# 装备一种，用完自动卸下）。效果见 fish_config 药水常量（非彩蛋消耗，
+# 稀有度/大鱼提升对应随机落点，回溯空军重判一次）。
+# 存储复用 fish_props（钓鱼背包道具表），装备位在 fish_players.potion_id。
+_FISH_POTION_ITEMS_DEFAULT: dict = {
+    "potion_bigfish": {"name": "大鱼药水",
+                       "desc": "额外提高大鱼概率"},
+    "potion_rarity": {"name": "稀有度药水",
+                      "desc": "额外提高稀有度"},
+    "potion_rollback": {"name": "回溯药水",
+                        "desc": "空军时回溯一次时空"},
 }
 
 # 图鉴奖励目录：键 "稀有度:级别档"（每个稀有度 6 档 D/C/B/A/S/X，共 30 档，
@@ -205,16 +244,19 @@ _FIXED_ENTRY_FIELDS: dict[str, dict] = {
     "fish_shop_rods": _FISH_RODS_DEFAULT,
     "fish_shop_lines": _FISH_LINES_DEFAULT,
     "fish_shop_baits": _FISH_BAITS_DEFAULT,
+    "fish_egg_items": _FISH_EGG_ITEMS_DEFAULT,
+    "fish_potion_items": _FISH_POTION_ITEMS_DEFAULT,
     "fish_rarity_weights": _FISH_RARITY_WEIGHTS_DEFAULT,
     "fish_grade_ranges": _FISH_GRADE_RANGES_DEFAULT,
     "fish_collection_rewards": _FISH_COLLECTION_REWARDS_DEFAULT,
 }
 
-# 钓鱼商店商品名称不可通过热更新修改（只能改属性与价格）；条目本身的
-# 增删由 _FIXED_ENTRY_FIELDS 一并锁定（渔具/鱼饵目录固定）
+# 钓鱼商店商品与彩蛋/药水目录名称不可通过热更新修改（只能改属性与
+# 价格）；条目本身的增删由 _FIXED_ENTRY_FIELDS 一并锁定
 # 幸运宝珠为唯一单件装备（存 owned 标记而非条目 id），改名不影响已有数据，故不锁定
 _SHOP_NAME_LOCKED_FIELDS = (
     "fish_shop_rods", "fish_shop_lines", "fish_shop_baits",
+    "fish_egg_items", "fish_potion_items",
 )
 
 # 商店条目内嵌权重块的固定键集：鱼竿级别概率（D/C/B/A/S/X）与鱼饵
@@ -242,6 +284,20 @@ _FISH_REWARD_RESERVED_CHOICES: list[tuple[str, str]] = [
     ("fish_limit", "每日钓鱼次数上限"),
     ("su_code", "SU激活码获取权限"),
 ]
+
+# 计价货币下拉：条目内 currency 属性（商店表/彩蛋目录）与标量字段
+# （幸运宝珠/氧气泵）共用同一组选项
+_SHOP_CURRENCY_ATTR_FIELDS = (
+    "fish_shop_rods", "fish_shop_lines", "fish_shop_baits", "fish_egg_items",
+)
+_SCALAR_CURRENCY_FIELDS = ("fish_orb_currency", "fish_pump_currency")
+
+
+def _currency_choices() -> list[dict[str, str]]:
+    """计价货币下拉选项 [{value, label}]"""
+    return [
+        {"value": key, "label": label} for key, label in FISH_CURRENCIES.items()
+    ]
 
 
 def _fish_reward_key_choices() -> list[dict[str, str]]:
@@ -307,6 +363,7 @@ class KoinoribotConfig(BaseModel):
     # 幸运宝珠（唯一单件装备：只能购买一次，购买后自动装备、无耐久、不可卸下）
     fish_orb_name: str = "幸运宝珠"
     fish_orb_price: int = 100000
+    fish_orb_currency: str = "gold"
     fish_orb_desc: str = "内里跃动着幸运微光，攒满便会应验"
     # 幸运宝珠：幸运暴击时额外增加的幸运值（百分点，与鱼线幸运同单位）
     fish_orb_lucky_bonus: float = 20
@@ -325,6 +382,7 @@ class KoinoribotConfig(BaseModel):
     # 氧气泵（唯一单件：购买后被动生效，水族箱成长速率提升）
     fish_pump_name: str = "氧气泵"
     fish_pump_price: int = 200
+    fish_pump_currency: str = "luckygold"
     fish_pump_desc: str = "咕嘟咕嘟冒着气泡，鱼儿长得更快了"
     # 氧气泵成长速率加成（百分点，100 = +100% 即翻倍）
     fish_pump_growth_bonus: float = 100
@@ -350,6 +408,15 @@ class KoinoribotConfig(BaseModel):
     # orb/pump/fish_limit/su_code）或钓鱼商店商品 id；详见
     # _FISH_COLLECTION_REWARDS_DEFAULT 注释
     fish_collection_rewards: dict = _FISH_COLLECTION_REWARDS_DEFAULT
+    # 彩蛋概率（百分点）：每次钓鱼先判定是否命中彩蛋，命中改抽彩蛋单品
+    # （不判定空军）；幸运暴击必然走鱼类分支
+    fish_egg_rate: float = 5
+    # 彩蛋单品目录 {id: {name, weight, desc, art}}，5 件固定
+    # 不可增删改；weight 为单品抽取权重（各自可调）
+    fish_egg_items: dict = _FISH_EGG_ITEMS_DEFAULT
+    # 药水目录 {id: {name, desc}}，固定 3 种不可增删改；由彩蛋「药水包」
+    # 随机掉落，装备后生效（同时只能装备一种，用完自动卸下）
+    fish_potion_items: dict = _FISH_POTION_ITEMS_DEFAULT
 
     # ================== 经济系统 ==================
     min_rest: int = 1000                    # 转账后最少剩余金币
@@ -424,8 +491,15 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
     "钓鱼·商店": [
         "fish_shop_rods", "fish_shop_lines", "fish_shop_baits",
     ],
+    "钓鱼·彩蛋": [
+        "fish_egg_rate", "fish_egg_items",
+    ],
+    "钓鱼·药水": [
+        "fish_potion_items",
+    ],
     "钓鱼·幸运宝珠": [
-        "fish_orb_name", "fish_orb_price", "fish_orb_desc",
+        "fish_orb_name", "fish_orb_price", "fish_orb_currency",
+        "fish_orb_desc",
         "fish_orb_lucky_bonus", "fish_orb_upgrade_base_price",
         "fish_orb_max_level", "fish_orb_energy_cap_base",
         "fish_orb_cap_reduce_per_level",
@@ -433,7 +507,8 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
     ],
     "钓鱼·水族箱": [
         "fish_aquarium_daily_growth_cm",
-        "fish_pump_name", "fish_pump_price", "fish_pump_desc",
+        "fish_pump_name", "fish_pump_price", "fish_pump_currency",
+        "fish_pump_desc",
         "fish_pump_growth_bonus",
         "fish_slot_base_price", "fish_growth_cap_factor",
     ],
@@ -476,9 +551,9 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     # 新版钓鱼
     "fish_rarity_weights": "稀有度基准权重（键为固定 5 档稀有度名：普通/稀有/史诗/传说/神话，不可增删改）；仅当某鱼饵未配置 rarity_weights 时回落使用",
     "fish_species": "鱼品种表：{品种id: {name, rarity, base_price, base_length_cm, air_force_rate, art}}；base_length_cm 为基准长度（D 级最小长度，决定各级长度区间），base_price 为基准售价，air_force_rate 为基础空军概率（最终空军率 = 基础空军率 - 总幸运值，下限 0）；可在此新增/删除品种",
-    "fish_shop_rods": "鱼竿商品表：{id: {name, price, desc, durability, repair_price, grade_weights}}；grade_weights 为级别概率 {D/C/B/A/S/X}（只影响级别，级别越高鱼越长）；durability 填 null 表示无耐久（如初始鱼竿）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
-    "fish_shop_lines": "鱼线商品表：{id: {name, price, desc, durability, repair_price, luck}}；luck 为幸运值（百分点），用于抵消品种基础空军率，只影响空军概率；条目与名称均不可新增/删除/修改，只能改各属性与价格",
-    "fish_shop_baits": "鱼饵商品表：{id: {name, price, desc, unlimited, rarity_weights}}；rarity_weights 为稀有度概率 {普通/稀有/史诗/传说/神话}（只影响稀有度）；unlimited 填 true 表示无限使用（初始鱼饵）；其余为一次性用品，每次钓鱼消耗 1 个；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_rods": "鱼竿商品表：{id: {name, price, currency, desc, durability, repair_price, grade_weights}}；grade_weights 为级别概率 {D/C/B/A/S/X}（只影响级别，级别越高鱼越长）；currency 为购买计价货币（gold 金币/kirastone 宝石/luckygold 幸运币；修理固定金币）；durability 填 null 表示无耐久（如初始鱼竿）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_lines": "鱼线商品表：{id: {name, price, currency, desc, durability, repair_price, luck}}；luck 为幸运值（百分点），用于抵消品种基础空军率，只影响空军概率；currency 为购买计价货币（gold 金币/kirastone 宝石/luckygold 幸运币；修理固定金币）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_baits": "鱼饵商品表：{id: {name, price, currency, desc, unlimited, rarity_weights}}；rarity_weights 为稀有度概率 {普通/稀有/史诗/传说/神话}（只影响稀有度）；currency 为计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）；unlimited 填 true 表示无限使用（初始鱼饵）；其余为一次性用品，每次钓鱼消耗 1 个；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_grade_ranges": "各级别的长度区间系数 {级别: [lo, hi]}：长度 = 基准长度 × 区间随机（D 从 ×1.0 起，各级首尾相接；修改会影响所有鱼的取长）；键为固定 6 级 D/C/B/A/S/X，不可增删改",
     "fish_sell_price_exponent": "售价指数：售价 = 基准售价 × 指数^(出售时长度 / 基准长度)；越大则养大后越值钱",
     "fish_lucky_tiers": "放生幸运币分档：[[售价下限, 幸运币], ...]；售价低于首档下限的鱼不可放生（默认 1万→1、5万→2、10万→5、100万→10）",
@@ -503,6 +578,11 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "fish_limit_count": "每人每日最大钓鱼次数（等级 0 的 SU 不受限制；宠物技能/幸运转盘可加当日上限）",
     "fish_auto_sell_threshold": "自动处理阈值：开启自动处理后，成长到最大（可成长至）售价仍低于该金币数的鱼自动卖出，其余自动放入水族箱（水族箱满时交由玩家处理）",
     "fish_collection_rewards": "图鉴奖励目录：{稀有度:级别档: {奖励: {奖励键: 数量}}}；档位键固定（每稀有度 D/C/B/A/S/X 共 6 档、5 稀有度共 30 档，不可增删改），进入条目后在「奖励」块内增删改行即可调整奖励内容，单档可含多项；奖励键可用预留键 gold 金币/luckygold 幸运币/kirastone 宝石/orb 幸运宝珠/pump 氧气泵/fish_limit 每日钓鱼次数上限/su_code SU激活码获取权限，或钓鱼商店商品 id（鱼饵/鱼竿/鱼线，类型自动推导）；非消耗品（orb/pump/su_code/鱼竿/鱼线）数量强制 1；奖励发放时若已拥有该非消耗品按售价折算为对应货币；fish_limit 与 su_code 在领取后永久生效；档位解锁条件：该稀有度全部品种收集且全部品种级别 ≥ 档位",
+    "fish_egg_rate": "彩蛋概率（百分点）：每次钓鱼先判定是否命中彩蛋，命中则按各彩蛋单品权重抽取单品（彩蛋不判定空军）；未命中按原稀有度权重抽取鱼类；幸运暴击必然走鱼类分支；0 = 关闭彩蛋",
+    "fish_egg_items": "彩蛋单品目录：{id: {name, weight, desc, art}}；weight 为单品抽取权重（各自可调，按比率归一）；鱼饵包/无人认领的钱包/药水包三件固定钓到自动开启（无法储存，奖励直接发放），钓鱼扫荡劵收入钓鱼背包；条目与名称固定不可增删改；art 为图片资源（URL 或相对路径，留空发文本）",
+    "fish_potion_items": "药水目录：{id: {name, desc}}；固定 3 种（大鱼/稀有度/回溯），由彩蛋「药水包」随机掉落，发送 装备药水 <名称> 装备（同时只能装备一种，用完自动卸下）；大鱼/稀有度药水非彩蛋钓获各消耗1个提升对应抽取落点，回溯药水空军时消耗并重判一次；条目与名称固定不可增删改",
+    "fish_orb_currency": "幸运宝珠计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）",
+    "fish_pump_currency": "氧气泵计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）",
     # 经济系统
     "min_rest": "转账后账户最少需保留的金币",
     "dibao": "低保金额，贫穷时可以领取",
@@ -776,6 +856,12 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
                     item["nested_choices"] = {
                         "奖励": _fish_reward_key_choices(),
                     }
+                # 条目内的 currency 属性渲染为下拉（计价货币三选一）
+                if name in _SHOP_CURRENCY_ATTR_FIELDS:
+                    item["attr_choices"] = {"currency": _currency_choices()}
+            # 标量字段下拉（幸运宝珠/氧气泵计价货币三选一）
+            if name in _SCALAR_CURRENCY_FIELDS:
+                item["choices"] = _currency_choices()
             items.append(item)
         sections[section] = items
     return {"sections": sections}
@@ -857,6 +943,71 @@ def _migrate_fish_collection_rewards() -> None:
         logger.error(f"[config_store] 图鉴奖励配置格式迁移失败: {e}")
 
 
+def _migrate_shop_currency() -> None:
+    """为存量商店表条目补上 currency 计价货币键（新增字段前入库的数据
+    没有该键，补齐后配置面板才能直接编辑；非法值交由读取层回落）。"""
+    defaults = {
+        "fish_shop_rods": "luckygold",
+        "fish_shop_lines": "luckygold",
+        "fish_shop_baits": "gold",
+    }
+    for field, currency in defaults.items():
+        table = getattr(config, field, None)
+        if not isinstance(table, dict):
+            continue
+        changed = False
+        filled = {}
+        for item_id, entry in table.items():
+            if isinstance(entry, dict) and "currency" not in entry:
+                filled[item_id] = {**entry, "currency": currency}
+                changed = True
+            else:
+                filled[item_id] = entry
+        if changed:
+            try:
+                update_config({field: filled})
+                logger.info(f"[config_store] {field} 已补齐 currency 计价货币键")
+            except ValueError as e:
+                logger.error(f"[config_store] {field} 补齐 currency 失败: {e}")
+
+
+# 药水效果实装前的占位描述（仅用于一次性迁移识别，勿再改动）
+_POTION_LEGACY_DESCS = {
+    "potion_bigfish": "似乎更容易钓上大鱼（效果待实装）",
+    "potion_rarity": "散发稀有鱼儿喜欢的气味（效果待实装）",
+    "potion_rollback": "时间在其中缓缓倒流（效果待实装）",
+}
+
+
+def _migrate_potion_descs() -> None:
+    """药水效果实装：把存量库中仍是占位描述的药水 desc 更新为定稿文案。
+
+    只覆盖仍等于旧占位值的条目（用户在面板改过的自定义描述保留）。
+    """
+    table = getattr(config, "fish_potion_items", None)
+    if not isinstance(table, dict):
+        return
+    changed = False
+    filled = {}
+    for item_id, entry in table.items():
+        if (isinstance(entry, dict)
+                and entry.get("desc") == _POTION_LEGACY_DESCS.get(item_id)
+                and item_id in _FISH_POTION_ITEMS_DEFAULT):
+            filled[item_id] = {
+                **entry,
+                "desc": _FISH_POTION_ITEMS_DEFAULT[item_id]["desc"],
+            }
+            changed = True
+        else:
+            filled[item_id] = entry
+    if changed:
+        try:
+            update_config({"fish_potion_items": filled})
+            logger.info("[config_store] 药水描述已更新为效果实装文案")
+        except ValueError as e:
+            logger.error(f"[config_store] 药水描述迁移失败: {e}")
+
+
 def _rename_legacy_keys(conn) -> None:
     valid_keys = KoinoribotConfig.model_fields
     for old, new in _KEY_RENAMES.items():
@@ -920,6 +1071,10 @@ def init_config_store(
     loaded = _load_from_db()
     # 图鉴奖励旧扁平格式 → 面板可编辑嵌套格式（升级后首次启动执行）
     _migrate_fish_collection_rewards()
+    # 商店表存量条目补齐 currency 计价货币键（面板可见可编辑）
+    _migrate_shop_currency()
+    # 药水效果实装：占位描述更新为定稿文案（自定义描述保留）
+    _migrate_potion_descs()
     logger.info(f"[config_store] 配置加载完成：{loaded} 项（数据库 {_db_path}）")
     return migrated_superusers
 

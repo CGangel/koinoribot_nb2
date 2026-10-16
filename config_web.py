@@ -352,10 +352,11 @@ _PAGE_HTML = """<!DOCTYPE html>
   .openbtn:hover { background: #e3ecfb; }
   .field .desc { font-size: 11.5px; color: var(--sub); margin-top: 3px; line-height: 1.5; }
 
-  input[type=text], input[type=number] { padding: 8px 10px; border: 1px solid var(--line);
+  input[type=text], input[type=number], select { padding: 8px 10px; border: 1px solid var(--line);
     border-radius: 8px; font-size: 13px; font-family: ui-monospace, Consolas, monospace;
-    outline: none; min-width: 0; width: 100%; transition: border-color .15s; }
-  input:focus { border-color: var(--accent); }
+    outline: none; min-width: 0; width: 100%; transition: border-color .15s;
+    background: #fff; color: var(--ink); }
+  input:focus, select:focus { border-color: var(--accent); }
 
   .switch { position: relative; display: inline-block; width: 46px; height: 25px; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
@@ -455,9 +456,10 @@ let revealed = false;
 let fieldMeta = {};          // key -> field（类型/原始值/打码标记/集合标记）
 let view = {section: null, field: null};   // 一级分区子页 / 二级集合子页
 let draft = {};              // key -> 草稿值（未保存修改，切页保留）
-// 钓鱼商店表：已有商品的名称与条目 id 不可修改（后端 update_config 也会强制保留名称）
+// 钓鱼商店表与彩蛋单品目录：已有条目的名称与条目 id 不可修改
+// （后端 update_config 也会强制保留名称）
 const SHOP_NAME_LOCKED_FIELDS = new Set([
-  'fish_shop_rods', 'fish_shop_lines', 'fish_shop_baits',
+  'fish_shop_rods', 'fish_shop_lines', 'fish_shop_baits', 'fish_egg_items',
 ]);
 // 条目固定的集合配置（渔具/鱼饵/稀有度权重/级别区间/图鉴奖励档位）：
 // 键不可增删改，只能改各自属性（后端 update_config 强制保留默认键集）
@@ -580,9 +582,42 @@ function renderField(f) {
     if (f.type === 'bool') box.appendChild(renderBool(f));
     else if (f.type === 'list') box.appendChild(renderList(f));
     else if (f.type === 'dict') box.appendChild(renderDict(f));
+    else if (f.choices) box.appendChild(renderChoice(f));
     else box.appendChild(renderScalar(f));
   }
   return box;
+}
+
+// 下拉选项构造：选项集合来自后端（如计价货币三选一）；当前值不在选项内
+// （历史脏数据）时保留为「未知值」便于查看，保存后由读取层回落
+function buildChoiceSelect(choices, sv) {
+  const sel = document.createElement('select');
+  sel.dataset.etype = 'string';
+  const current = sv === undefined || sv === null ? '' : String(sv);
+  let matched = false;
+  for (const c of choices) {
+    const opt = document.createElement('option');
+    opt.value = c.value; opt.textContent = c.label;
+    if (c.value === current) matched = true;
+    sel.appendChild(opt);
+  }
+  if (current && !matched) {
+    const opt = document.createElement('option');
+    opt.value = current; opt.textContent = current + '（未知值）';
+    sel.appendChild(opt);
+  }
+  sel.value = current || choices[0].value;
+  return sel;
+}
+
+function renderChoice(f) {
+  const sel = buildChoiceSelect(f.choices, currentOf(f));
+  sel.id = 'f_' + f.key;
+  sel.addEventListener('change', () => {
+    draft[f.key] = sel.value;
+    refreshDirty();
+  });
+  return sel;
 }
 
 function renderBool(f) {
@@ -766,7 +801,7 @@ function renderFieldPage(f) {
       if (!k) return;
       const obj = {};
       entry.querySelectorAll(':scope > .ebody > .frow').forEach(row => {
-        const input = row.querySelector('input');
+        const input = row.querySelector('input, select');
         obj[row.dataset.sk] = coerce(input.value, input.dataset.etype);
       });
       entry.querySelectorAll(':scope > .ebody > .nblock').forEach(block => {
@@ -789,15 +824,23 @@ function renderFieldPage(f) {
     const row = el('div', 'frow');
     row.dataset.sk = sk;
     row.appendChild(el('label', null, locked ? sk + '（锁定）' : sk));
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.dataset.etype = typeof sv === 'number' ? 'number' : 'string';
-    input.value = sv === undefined || sv === null ? '' : String(sv);
+    // 条目内指定属性渲染为下拉（如计价货币 currency，选项来自后端）
+    const attrChoices = (f.attr_choices || {})[sk] || null;
+    let input;
+    if (attrChoices) {
+      input = buildChoiceSelect(attrChoices, sv);
+      input.addEventListener('change', syncEntries);
+    } else {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.dataset.etype = typeof sv === 'number' ? 'number' : 'string';
+      input.value = sv === undefined || sv === null ? '' : String(sv);
+      input.addEventListener('input', syncEntries);
+    }
     if (locked) {
       input.disabled = true;
       input.title = '名称不可修改：只能修改属性与价格（新增商品可填新名称）';
     }
-    input.addEventListener('input', syncEntries);
     row.appendChild(input);
     body.appendChild(row);
   }

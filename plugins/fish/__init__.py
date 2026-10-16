@@ -1,31 +1,3 @@
-"""钓鱼插件 - fish（新版）
-
-框架阶段实现：单抽钓鱼（钓获后必须立即选择 卖鱼/放生/放入水族箱，
-未处理前不能再钓）、品种（5 档稀有度：普通/稀有/史诗/传说/神话，
-稀有度决定品种；不同稀有度有不同的级别基准概率）、级别（D/C/B/A/S/X，
-固定长度区间 [基准×lo, 基准×hi)）、图鉴（按品种统计历史最大级别与
-钓获时最大长度）、水族箱养成（无需照料，纯时间成长，可成长至钓获时
-长度×成长上限系数，养成增长不影响图鉴口径）、放生（不获得金币，按
-售价分档获得幸运币）、空军（每种鱼有各自的基础空军概率，最终空军率
-= 基础空军率 - 总幸运值）、钓鱼商店（鱼竿/鱼线带耐久与幸运值，鱼饵
-一次性；非鱼饵商品限购一次，商品名称不可通过配置修改）、幸运宝珠
-（能量满触发幸运暴击：只出史诗及以上、A 级及以上的鱼并获得幸运加
-成；升级花幸运币）、水族箱槽位扩展（5 → 10，价格指数递增）、图鉴
-奖励（每稀有度 6 档共 30 档，奖励目录面板可改，见 fish_collection_
-rewards）。
-品种表可在配置面板增删改；渔具/鱼饵商品表、稀有度权重、级别区间与
-图鉴奖励档位的条目固定（键不可增删改，只能改各自属性，面板与
-update_config 双重强制）；
-钓鱼响应中的图片以合并转发消息发送（品种 art 为空时发纯文本）；
-帮助/商店/图鉴等长文本同样以伪造合并转发发送，避免刷屏。
-具体玩法数值与美术资源待补充（见 config_store / fish_config 的 TODO 标记）。
-
-旧版钓鱼已移除：漂流瓶完整迁出为独立插件 plugins/drift_bottle（与钓鱼
-解耦）；每日钓鱼次数限制由本模块的 fish_limit 子模块提供（chongwu /
-chaogu 共用同一口径与同一张表；表中区分「当日已钓次数 / 临时增益 /
-永久增益」，当天总上限 = 配置基础次数 + 临时增益 + 永久增益）。
-"""
-
 from itertools import count
 from pathlib import Path
 
@@ -53,6 +25,7 @@ from . import aquarium_card
 from . import fish_config as C
 from .db import FishDB
 from .fish_config import (
+    EGG_SWEEP_TICKET_ID,
     bait_table,
     calc_sell_price,
     line_table,
@@ -229,7 +202,7 @@ async def _send_qqbot_card(
     """官Bot 发送钓鱼卡片：单条消息（markdown 内嵌卡片图 + 按钮键盘）
     优先；图床不可用（未配置 ip_address）时回退为图片 + 按钮两条消息。
 
-    空军（无待处理鱼）与自动处理（已卖出/已入箱）的卡片没有可处理项，
+    空军、彩蛋与自动处理（已卖出/已入箱）的卡片没有可处理项，
     第一行动作按钮跳过，只保留 查看水族箱/自动处理开关。
     """
     player = await FishService.ensure_player(uid)
@@ -237,7 +210,8 @@ async def _send_qqbot_card(
         release_ok=result.get("lucky_value", 0) >= 1,
         auto_sell_on=bool(player["auto_sell"]),
         with_actions=not (
-            result.get("air") or result.get("auto_sold") or result.get("auto_tank")
+            result.get("air") or result.get("auto_sold")
+            or result.get("auto_tank") or result.get("egg")
         ),
         owner_uid=uid,
         item_id=result.get("item_id"),
@@ -253,6 +227,44 @@ async def _send_qqbot_card(
     return True
 
 
+async def _send_cast_card(
+    bot: Bot, event: Event, uid: int, result: dict,
+    image_bytes: bytes | None,
+) -> bool:
+    """发送一张钓鱼卡片（不终止本次处理）：官Bot 优先 markdown 内嵌
+    卡片图 + 按钮键盘，其余平台纯图片；失败返回 False 由调用方走文本
+    兜底。回溯药水的「先空军卡、再重判卡」两张卡片复用此入口。"""
+    if not image_bytes:
+        return False
+    if _is_qqbot_event(event):
+        try:
+            if await _send_qqbot_card(bot, event, uid, result, image_bytes):
+                return True
+        except Exception as error:
+            logger.warning(f"官Bot发送钓鱼卡片/按钮失败，回退纯图片: {error}")
+    try:
+        image_msg = build_image_msg(event, image_bytes)
+    except Exception as error:
+        logger.warning(f"构建钓鱼卡片消息失败，回退文本: {error}")
+        return False
+    try:
+        await bot.send(event, image_msg)
+        return True
+    except Exception as error:
+        logger.warning(f"发送钓鱼卡片失败，回退文本: {error}")
+        return False
+
+
+async def _finish_cast_card(
+    cast_cmd, bot: Bot, event: Event, uid: int, result: dict,
+    image_bytes: bytes | None,
+) -> None:
+    """发送钓鱼卡片（鱼类与彩蛋共用）：发送成功即 finish 终止本次处理；
+    渲染失败/构建消息失败/发送失败均返回，由调用方走文本兜底。"""
+    if await _send_cast_card(bot, event, uid, result, image_bytes):
+        await cast_cmd.finish()
+
+
 # 2~4 级装备的强度档位词（依次小幅/中幅/大幅）
 _TIER_WORDS = {2: "小幅", 3: "中幅", 4: "大幅"}
 
@@ -264,7 +276,7 @@ def _tier_word(index: int, base_word: str) -> str:
 
 
 def _gear_block(item: dict, kind: str, owned: bool, index: int) -> list[str]:
-    """鱼竿/鱼线的详情行（售价为幸运币；初始装备不可购买）"""
+    """鱼竿/鱼线的详情行（购买货币见商品配置、修理固定金币；初始装备不可购买）"""
     if kind == "rod":
         strength = _tier_word(index, "增加大鱼概率")
     else:
@@ -277,28 +289,31 @@ def _gear_block(item: dict, kind: str, owned: bool, index: int) -> list[str]:
         blocks.append(
             f"  耐久：{item['durability']}（修复 {item['repair_price']} 金币）"
         )
-        price = "已购买" if owned else f"{item['price']} 幸运币"
+        price = ("已购买" if owned
+                 else f"{item['price']} {C.currency_name(item.get('currency'))}")
     blocks.append(f"  售价：{price}")
     return blocks
 
 
 def _bait_block(item: dict, bait_id: str, count: int, using: bool,
                 index: int) -> list[str]:
-    """鱼饵的详情行（售价为金币，一次性）"""
+    """鱼饵的详情行（一次性；计价货币见商品配置）"""
     blocks = [f"{index}.{item['name']}", f"  属性：{_tier_word(index, '增加稀有度')}"]
     if item.get("unlimited"):
         price = "初始装备（无限使用）"
     else:
         mark = "（使用中）" if using else ""
         blocks.append(f"  库存：×{count}")
-        price = f"{item['price']} 金币/个{mark}"
+        price = f"{item['price']} {C.currency_name(item.get('currency'))}/个{mark}"
     blocks.append(f"  售价：{price}")
     return blocks
 
 
 def _orb_block(orb: dict, owned: bool) -> list[str]:
-    """幸运宝珠的详情行（售价为金币，限购一次）"""
-    price = "已购买" if owned else f"{orb['price']} 金币"
+    """幸运宝珠的详情行（限购一次；计价货币可配置）"""
+    price = "已购买" if owned else (
+        f"{orb['price']} {C.currency_name(orb.get('currency'))}"
+    )
     return [
         f"1.{orb['name']}",
         "  属性：幸运暴击（能量满时触发）",
@@ -307,8 +322,10 @@ def _orb_block(orb: dict, owned: bool) -> list[str]:
 
 
 def _pump_block(pump: dict, owned: bool) -> list[str]:
-    """氧气泵的详情行（售价为幸运币，限购一次，购买后被动生效）"""
-    price = "已购买" if owned else f"{pump['price']} 幸运币"
+    """氧气泵的详情行（限购一次，购买后被动生效；计价货币可配置）"""
+    price = "已购买" if owned else (
+        f"{pump['price']} {C.currency_name(pump.get('currency'))}"
+    )
     return [
         f"1.{pump['name']}",
         f"  属性：水族箱成长速率 +{pump['growth_bonus']:g}%",
@@ -322,14 +339,25 @@ fish_help_cmd = on_command("钓鱼帮助", priority=5, block=True)
 HELP_TEXT = """【钓鱼玩法】
 ==钓鱼==
   钓鱼 —— 钓一条鱼
+  一键钓鱼/十连钓鱼 —— 消耗10次钓鱼次数连钓10杆，钓到的鱼自动处理
   卖鱼 —— 换金币，鱼越大卖得越贵
   放生 —— 获取等同于幸运值的幸运币
   放入水族箱 —— 养大了再卖
-  我的背包 —— 查看自己的装备
-  换鱼竿/换鱼线/换鱼饵 <名称> —— 更换为对应的装备
+  我的背包 —— 查看自己的装备、鱼饵、药水与道具
+  换鱼竿/换鱼线/换鱼饵/装备药水 <名称> —— 更换为对应的装备或药水
   修理鱼竿/修理鱼线 —— 消耗金币修复装备
   开启自动处理/关闭自动处理 —— 自动卖出养大也不值钱的鱼，其余自动放入水族箱
 装备越好，越容易钓上稀有的鱼、高级别的鱼和大鱼，空军也更少
+钓鱼还有机会钓出彩蛋（鱼饵包/无人认领的钱包/药水包/钓鱼扫荡劵），
+彩蛋不会空军；药水包可开出 大鱼/稀有度/回溯药水，发送 装备药水 <名称>
+装备后生效（同时只能装备一种，用完自动卸下）：大鱼/稀有度药水钓鱼时各
+消耗1瓶提升对应抽取，回溯药水空军时自动回溯重判一次~
+
+==一键钓鱼==
+  需要：钓鱼扫荡劵1张（消耗）+ 水族箱空余栏位 ≥10 + 鱼竿/鱼线耐久 ≥10
+  + 今日剩余次数 ≥10
+  效果：连钓10杆（消耗10次次数），钓到的鱼自动处理（不值得养的卖出、
+  其余入箱）；扫荡劵由彩蛋「钓鱼扫荡劵」钓到
 
 ==图鉴==
   鱼类图鉴 —— 呼出图鉴
@@ -353,7 +381,8 @@ HELP_TEXT = """【钓鱼玩法】
   买幸运宝珠 —— 购买并装备幸运宝珠
   买氧气泵 —— 水族箱成长速率 +100%
   升级幸运宝珠 —— 消耗幸运币升级宝珠
-鱼竿鱼线有耐久，用完要修理
+商品计价货币各不相同，以商店标注为准（金币/宝石/幸运币）
+鱼竿鱼线有耐久，用完要修理（修理固定消耗金币）
 鱼饵是消耗品，需要定期补充
 非消耗品只能买一次，买后自动装备
 幸运宝珠：每钓起一条鱼攒 1 点能量，攒满后下一竿触发幸运暴击
@@ -424,6 +453,70 @@ async def handle_cast(
     # 冷却时长每次触发时现读配置（面板热更新即时生效）
     cast_freq.start_cd(uid, C.cast_cd())
 
+    # 彩蛋钓获：同样走卡片（彩蛋底图变体，右栏信息块贴发放结果，
+    # 无操作按钮）；单品配了美术则贴图，否则底图补简笔彩蛋
+    if result.get("egg"):
+        egg = result["egg"]
+        badge = (
+            "图鉴已解锁！"
+            if (result.get("collection") or {}).get("new_unlock") else ""
+        )
+        # 今日剩余次数（等级 0 的 SU 不限次）
+        if limited:
+            used, cap = FishLimitManager.get_user_fish_count_today(uid)
+            remaining, total = max(0, cap - used), cap
+        else:
+            remaining, total = None, None
+        fields = fishing_card.build_egg_fields(
+            result, remaining, total, badge,
+            result.get("orb"), result.get("gear"),
+        )
+        image_bytes = fishing_card.render(
+            fields, "彩蛋", await _load_art_bytes(egg.get("art"))
+        )
+        await _finish_cast_card(cast_cmd, bot, event, uid, result, image_bytes)
+        # 卡片渲染/发送失败时的文本兜底
+        lines = [
+            f"你钓上来一个彩蛋——【{egg['name']}】！",
+            "品质: 彩蛋",
+        ]
+        if badge:
+            lines.append(badge)
+        lines.append((result.get("grant") or {}).get("text", ""))
+        if limited:
+            used, cap = FishLimitManager.get_user_fish_count_today(uid)
+            lines.append(f"今日剩余次数: {max(0, cap - used)}/{cap}")
+        await cast_cmd.finish("\n".join(lines))
+
+    # 今日剩余次数（等级 0 的 SU 不限次；回溯前后同一数值，先算好复用）
+    if limited:
+        used, cap = FishLimitManager.get_user_fish_count_today(uid)
+        remaining, total = max(0, cap - used), cap
+    else:
+        remaining, total = None, None
+
+    # 回溯药水：空军时先发空军卡片（不终止），再按原有空军概率重判一次，
+    # 用重判结果走后续卡片流程（第二张卡片；不额外消耗次数/CD/鱼饵/耐久）
+    if result["air"] and result.get("rollback"):
+        fields = fishing_card.build_fields(
+            result, remaining, total, "", result.get("orb"), result.get("gear")
+        )
+        image_bytes = fishing_card.render(
+            fields, result["rarity"],
+            await _load_art_bytes(
+                species_table().get(result["species_id"], {}).get("art", "")),
+        )
+        if not await _send_cast_card(bot, event, uid, result, image_bytes):
+            # 第一张（空军）卡片发送失败的文本兜底
+            await cast_cmd.send("\n".join([
+                f"鱼线被挣断了，{result['species_name']}逃走了。",
+                f"长度: {_fmt_len(result['length'])}cm({result['grade']})",
+                f"品质: {result['rarity']}",
+                "鱼线被挣断，鱼逃走了...",
+                "很可惜呢，下次再试试吧",
+            ]))
+        result = await FishService.rollback_cast(uid, result)
+
     # 幸运宝珠：幸运暴击前缀行 + 能量行
     orb = result.get("orb")
     lucky_prefix = []
@@ -437,6 +530,12 @@ async def handle_cast(
             orb_lines.append(f"幸运宝珠能量: {orb['energy']}/{orb['cap']}")
 
     art = species_table().get(result["species_id"], {}).get("art", "")
+
+    # 回溯药水的重判结果：显目提示（标题前缀 + 徽标 + 文本兜底行），
+    # 让玩家意识到这一杆是回溯药水的功劳
+    rewound = bool(result.get("rollback_used"))
+    rewound_prefix = ["时空回溯！"] if rewound else []
+    rewound_badge = "回溯药水生效！" if rewound else ""
 
     # ===== 渲染卡片（空军与成功钓获同一套，空军用底图变体与固定文案） =====
     collection = result.get("collection") or {}
@@ -458,56 +557,30 @@ async def handle_cast(
             )
         badge = records[0] if records else ""
         badge2 = records[1] if len(records) > 1 else ""
-
-    # 今日剩余次数（等级 0 的 SU 不限次）
-    if limited:
-        used, cap = FishLimitManager.get_user_fish_count_today(uid)
-        remaining, total = max(0, cap - used), cap
-    else:
-        remaining, total = None, None
+    if rewound and not badge:
+        badge = rewound_badge        # 空军卡不渲染徽标位，由标题前缀兜底
 
     fields = fishing_card.build_fields(
         result, remaining, total, badge, orb, result.get("gear"), badge2
     )
-    # 幸运暴击并入标题（卡片无独立的宝珠槽位）
+    # 幸运暴击/时空回溯并入标题（卡片无独立槽位）；按事件顺序排列：
+    # 幸运暴击！时空回溯！你钓到了【xx】。
+    if rewound:
+        fields["title"] = rewound_prefix[0] + fields["title"]
     if lucky_prefix:
         fields["title"] = lucky_prefix[0] + fields["title"]
     image_bytes = fishing_card.render(
         fields, result["rarity"], await _load_art_bytes(art)
     )
-    if image_bytes is not None:
-        image_msg = None
-        try:
-            image_msg = build_image_msg(event, image_bytes)
-        except Exception as error:
-            logger.warning(f"构建钓鱼卡片消息失败，回退文本: {error}")
-        if image_msg is not None:
-            sent_direct = False
-            if _is_qqbot_event(event):
-                # 官Bot：单条消息（markdown 内嵌卡片图 + 按钮键盘）；
-                # 失败时回退原 finish 路径（纯图片/文本）
-                try:
-                    sent_direct = await _send_qqbot_card(
-                        bot, event, uid, result, image_bytes
-                    )
-                except Exception as error:
-                    logger.warning(f"官Bot发送钓鱼卡片/按钮失败，回退文本: {error}")
-                    sent_direct = False
-            if sent_direct:
-                await cast_cmd.finish()
-            else:
-                try:
-                    await cast_cmd.finish(image_msg)
-                except FinishedException:
-                    raise                  # finish 的正常终止信号，放行
-                except Exception as error:
-                    logger.warning(f"发送钓鱼卡片失败，回退文本: {error}")
+    await _finish_cast_card(cast_cmd, bot, event, uid, result, image_bytes)
 
     # 卡片渲染/发送失败时的文本兜底
     if result["air"]:
         # 空军：无售价/成长栏，结尾同卡片固定文案
         await cast_cmd.finish("\n".join([
             *lucky_prefix,
+            *(["回溯药水生效，时空倒流重判了一次——仍被挣脱..."]
+              if rewound else []),
             f"鱼线被挣断了，{result['species_name']}逃走了。",
             f"长度: {_fmt_len(result['length'])}cm({result['grade']})",
             f"品质: {result['rarity']}",
@@ -530,6 +603,7 @@ async def handle_cast(
     fish_lines.append(f"品质: {result['rarity']}")
     lines = [
         *lucky_prefix,
+        *(["回溯药水生效，时空倒流重判了一次！"] if rewound else []),
         f"你钓到了【{result['species_name']}】。",
         *fish_lines,
     ]
@@ -546,6 +620,145 @@ async def handle_cast(
             options.insert(1, "放生")
         lines.append("请选择 " + "/".join(options))
     await cast_cmd.finish("\n".join(lines))
+
+
+# ===== 一键钓鱼（十连）：一次性消耗 10 次钓鱼次数，钓到的鱼强制自动处理 =====
+SWEEP_COUNT = 10
+
+sweep_cmd = on_command("一键钓鱼", aliases={"十连钓鱼"}, priority=5, block=True)
+
+
+async def _sweep_gear_blocker(uid: int, player: dict) -> str:
+    """十连前检查鱼竿/鱼线耐久 ≥10（10 杆磨损 10 点；初始渔具无耐久不限）。
+
+    返回拒绝文案；耐久足够（或未装备商店渔具）返回空串。
+    """
+    for kind, item_id, fallback in (
+        ("rod", player.get("rod_item_id"), "鱼竿"),
+        ("line", player.get("line_item_id"), "鱼线"),
+    ):
+        if item_id is None:
+            continue    # 初始渔具无实例、无耐久上限
+        instance = await FishDB.get_gear(item_id, uid)
+        if instance is None:
+            continue    # 实例丢失：do_cast 会回落初始渔具
+        if instance["durability"] < SWEEP_COUNT:
+            table = rod_table() if kind == "rod" else line_table()
+            name = table.get(instance["gear_id"], {}).get("name", fallback)
+            return (
+                f"{name}耐久不足（{instance['durability']}/{SWEEP_COUNT}）——"
+                "十连会磨损10点耐久，先修理再来~"
+            )
+    return ""
+
+
+@sweep_cmd.handle()
+async def handle_sweep(
+    event: Event,
+    uid: int = Depends(get_uid),
+) -> None:
+    from . import sweep_card
+
+    if not cast_freq.check(uid):
+        await sweep_cmd.finish(
+            f"鱼竿还在收线中，休息一会吧~({int(cast_freq.left_time(uid))}s)"
+        )
+    # 扫荡劵：十连的入场券（钓到彩蛋「钓鱼扫荡劵」获得）
+    if await FishDB.get_prop_count(uid, EGG_SWEEP_TICKET_ID) < 1:
+        await sweep_cmd.finish(
+            "没有钓鱼扫荡劵~钓鱼时有几率从彩蛋钓到（发送 我的背包 查看）"
+        )
+    # 待处理鱼获会卡住后续杆（一键不经过待处理区，先清掉）
+    pending = await FishDB.get_pending_item(uid)
+    if pending is not None:
+        await sweep_cmd.finish(
+            "还有一条鱼没处理！发送 卖鱼 / 放生 / 放入水族箱 处理后再来~"
+        )
+    # 水族箱空余栏位 ≥10（最坏情况 10 条鱼全部入箱）
+    player = await FishService.ensure_player(uid)
+    free_slots = player["slots"] - len(
+        await FishDB.list_fish_items(uid, place="aquarium"))
+    if free_slots < SWEEP_COUNT:
+        await sweep_cmd.finish(
+            f"水族箱空余栏位不足（{free_slots}/{SWEEP_COUNT}）——"
+            "十连的鱼最多全部入箱，先清理或扩展水族箱再来~"
+        )
+    # 鱼竿/鱼线耐久 ≥10（10 杆磨损 10 点；初始渔具无耐久不限）
+    gear_block = await _sweep_gear_blocker(uid, player)
+    if gear_block:
+        await sweep_cmd.finish(gear_block)
+    # 每日钓鱼次数 ≥10（等级 0 的 SU 不限次）
+    limited = not is_su_contributor(uid)
+    if limited:
+        used, cap = FishLimitManager.get_user_fish_count_today(uid)
+        if cap - used < SWEEP_COUNT:
+            await sweep_cmd.finish(
+                f"今日钓鱼次数不足（剩余 {max(0, cap - used)}/{SWEEP_COUNT}），"
+                "明天再来吧~"
+            )
+
+    # 前置条件齐备：消耗一张扫荡劵
+    await FishDB.consume_prop(uid, EGG_SWEEP_TICKET_ID, 1)
+
+    results: list[dict] = []
+    stopped = ""
+    for _ in range(SWEEP_COUNT):
+        if limited and not FishLimitManager.check_and_update_fish_limit(uid, 1):
+            stopped = "今日钓鱼次数用完，本次十连中断"
+            break
+        result = await FishService.do_cast(uid, force_auto=True)
+        if not result["ok"]:
+            if limited:
+                FishLimitManager.refund_today_count(uid)   # 未实际抛竿，退还
+            reason = result.get("reason")
+            if reason == "bait":
+                bait = bait_table().get(result.get("bait_id"), {})
+                stopped = f"{bait.get('name', '鱼饵')}用完了，本次十连中断"
+            elif reason == "rod_broken":
+                stopped = f"{result['gear_name']}耐久耗尽，本次十连中断"
+            elif reason == "line_broken":
+                stopped = f"{result['gear_name']}断掉了，本次十连中断"
+            else:
+                stopped = "钓鱼失败，本次十连中断"
+            break
+        if result.get("rollback"):
+            # 回溯药水：不发空军卡，直接消耗重判，列表只保留重判结果
+            result = await FishService.rollback_cast(uid, result)
+        results.append(result)
+
+    if results:
+        cast_freq.start_cd(uid, C.cast_cd())
+
+    lines = [sweep_card.build_line(result) for result in results]
+    sold = [r for r in results if r.get("auto_sold")]
+    tanked = [r for r in results if r.get("auto_tank")]
+    airs = [r for r in results if r.get("air")]
+    eggs = [r for r in results if r.get("egg")]
+    summary = "·".join(part for part in (
+        f"售出 {len(sold)} 条（{sum(r['sell_price'] for r in sold)}金币）"
+        if sold else "",
+        f"入箱 {len(tanked)} 条" if tanked else "",
+        f"空军 {len(airs)} 次" if airs else "",
+        f"彩蛋 {len(eggs)} 个" if eggs else "",
+    ) if part) or "空手而归..."
+    footer = [summary]
+    if limited:
+        used, cap = FishLimitManager.get_user_fish_count_today(uid)
+        footer.append(f"今日剩余次数: {max(0, cap - used)}/{cap}")
+    if stopped:
+        footer.append(stopped)
+
+    image_bytes = sweep_card.render(lines, footer, SWEEP_COUNT)
+    if image_bytes is not None:
+        try:
+            image_msg = build_image_msg(event, image_bytes)
+        except Exception as error:
+            logger.warning(f"构建十连卡片消息失败，回退文本: {error}")
+            image_msg = None
+        if image_msg is not None:
+            await sweep_cmd.finish(image_msg)
+    await sweep_cmd.finish(
+        "\n".join([*[line["text"] for line in lines], *footer]))
 
 
 # ===== 自动处理（旧称自动出售，指令别名保留兼容）=====
@@ -832,7 +1045,8 @@ HIDDEN_RARITIES = ("传说", "神话")
 
 
 def build_collection_text(
-    species: dict, rows: list, two_column: bool = False, tail: str = ""
+    species: dict, rows: list, two_column: bool = False, tail: str = "",
+    egg_items: dict | None = None,
 ) -> str:
     """图鉴全文：===稀有度=== 分组，组间空行。
 
@@ -840,11 +1054,15 @@ def build_collection_text(
     传说/神话档的鱼在解锁前不显示名称（??? 未钓到）。
     species 需已按稀有度排序（species_table() 的输出即如此）。
 
+    egg_items（彩蛋单品目录，egg_table() 的输出）非空时追加 ===彩蛋===
+    分组，行「彩蛋名 已钓到 / ??? 未钓到」——彩蛋只记是否钓到（无次数/
+    级别/长度口径），未钓到时与传说/神话同样隐藏名称。
+
     tail 为末尾附加文本（如图鉴奖励领取提醒）；two_column=True 时排进
     右列末尾（官Bot 转图片时提醒贴近右栏底部，不占左栏图鉴内容）。
 
     two_column=True 时排成左右两列（官Bot 转图片时图片更矮）：
-    左列 普通/稀有/史诗，右列 传说/神话；行内以制表符分列，由官Bot
+    左列 普通/稀有/史诗，右列 传说/神话/彩蛋；行内以制表符分列，由官Bot
     图片渲染器把右列固定画在画布中线，实现像素级对齐。
     """
     stats = {row["species_id"]: row for row in rows}
@@ -865,6 +1083,15 @@ def build_collection_text(
                 f"{sp['name']} {row['max_grade']}级 {_fmt_len(row['max_length'])}cm"
             )
 
+    if egg_items:
+        egg_lines = ["===彩蛋==="]
+        for egg_id, egg in egg_items.items():
+            if egg_id in stats:
+                egg_lines.append(f"{egg['name']} 已钓到")
+            else:
+                egg_lines.append("??? 未钓到")
+        sections["彩蛋"] = egg_lines
+
     tail_lines = [line for line in tail.split("\n") if line.strip()] if tail else []
     if not two_column:
         text = "\n\n".join("\n".join(s) for s in sections.values())
@@ -877,7 +1104,10 @@ def build_collection_text(
         + sections.get("稀有", []) + [""]
         + sections.get("史诗", [])
     )
+    # 彩蛋排在神话下方（右列末段），领取提醒再缀于其后
     right = sections.get("传说", []) + [""] + sections.get("神话", [])
+    if "彩蛋" in sections:
+        right = right + [""] + sections["彩蛋"]
     if tail_lines:
         right = right + [""] + tail_lines
     # 左右列以制表符分隔：官Bot 图片渲染器把右列固定画在画布中线，
@@ -906,7 +1136,8 @@ async def handle_collection(
             "发送 领取图鉴奖励 一次性领取"
         )
     text = build_collection_text(
-        species_table(), rows, two_column=_is_qqbot_event(event), tail=tail
+        species_table(), rows, two_column=_is_qqbot_event(event), tail=tail,
+        egg_items=C.egg_table(),
     )
     await _finish_as_forward(collection_cmd, event, bot, text)
 
@@ -1359,7 +1590,7 @@ async def handle_shop(
     left += [""] * (height - len(left))
     right += [""] * (height - len(right))
     lines = [
-        "买鱼竿/买鱼线/买氧气泵（幸运币）、买鱼饵/买幸运宝珠（金币）",
+        "买鱼竿/买鱼线/买鱼饵/买幸运宝珠/买氧气泵 <名称>（计价货币见各商品售价）",
         "换鱼竿/换鱼线/装备鱼饵 <名称> 、升级幸运宝珠",
         "",
     ]
@@ -1371,8 +1602,14 @@ async def handle_shop(
 gear_cmd = on_command("我的渔具", aliases={"钓鱼背包", "我的背包", "背包"}, priority=5, block=True)
 
 
-async def _gear_list_text(uid: int) -> str:
-    """我的背包文本（指令用）"""
+async def _gear_list_text(uid: int, two_column: bool = False) -> str:
+    """钓鱼背包文本（指令用）。
+
+    以 ==种类== 显式分区：装备中 / 渔具库（拥有的渔具实例）/ 鱼饵 /
+    药水 / 道具。two_column=True（官Bot 转图片）时排成左右两列——
+    左列 装备中+渔具库，右列 鱼饵+药水+道具，行内以制表符分列，
+    由官Bot 图片渲染器把右列固定画在画布中线（与钓鱼商店同机制）。
+    """
     player = await FishService.ensure_player(uid)
     rods, lines, baits = rod_table(), line_table(), bait_table()
 
@@ -1393,52 +1630,108 @@ async def _gear_list_text(uid: int) -> str:
             f"{state}"
         )
 
-    lines_out = [
+    # ==装备中==
+    equipped = [
+        "==装备中==",
         f"鱼竿：{await _gear_text(player['rod_item_id'], 'rod')}",
         f"鱼线：{await _gear_text(player['line_item_id'], 'line')}",
     ]
     if player["orb_owned"]:
         cap = C.orb_energy_cap(player["orb_level"])
         mark = "（使用中）" if player["orb_equipped"] else "（未装备）"
-        lines_out.append(
-            f"幸运宝珠 Lv.{player['orb_level']} "
+        equipped.append(
+            f"幸运宝珠：Lv.{player['orb_level']} "
             f"能量{player['orb_energy']}/{cap}{mark}"
         )
     else:
-        lines_out.append("幸运宝珠：未拥有（钓鱼商店可购买）")
-    lines_out.append("鱼饵库存：")
+        equipped.append("幸运宝珠：未拥有（钓鱼商店可购买）")
+    potions = C.potion_table()
+    potion_id = player.get("potion_id")
+    if potion_id and potion_id in potions:
+        left = await FishDB.get_prop_count(uid, potion_id)
+        equipped.append(f"药水：{potions[potion_id]['name']}（使用中，剩{left}瓶）")
+    else:
+        equipped.append("药水：未装备")
+
+    # ==渔具库==（拥有的渔具实例；初始渔具不落库）
+    owned = await FishDB.list_gear(uid)
+    gear_lib = ["==渔具库=="]
+    for g in owned:
+        table = rods if g["kind"] == "rod" else lines
+        entry = table.get(g["gear_id"])
+        name = entry["name"] if entry else g["gear_id"]
+        state = "" if g["durability"] > 0 else "【已损坏】"
+        kind_name = "竿" if g["kind"] == "rod" else "线"
+        gear_lib.append(f"{name}（{kind_name}） 耐久{g['durability']}{state}")
+    if len(gear_lib) == 1:
+        gear_lib.append("（空）")
+
+    # ==鱼饵==
+    bait_lines = ["==鱼饵=="]
     has_bait = False
-    for bait_id, info in baits.items():
+    for bid, info in baits.items():
         if info.get("unlimited"):
-            mark = "（使用中）" if bait_id == player["bait_id"] else ""
-            lines_out.append(f"{info['name']} ∞{mark}")
+            mark = "（使用中）" if bid == player["bait_id"] else ""
+            bait_lines.append(f"{info['name']} ∞{mark}")
             has_bait = True
         else:
-            count = await FishDB.get_bait_count(uid, bait_id)
+            count = await FishDB.get_bait_count(uid, bid)
             if count > 0:
-                mark = "（使用中）" if bait_id == player["bait_id"] else ""
-                lines_out.append(f"{info['name']} ×{count}{mark}")
+                mark = "（使用中）" if bid == player["bait_id"] else ""
+                bait_lines.append(f"{info['name']} ×{count}{mark}")
                 has_bait = True
     if not has_bait:
-        lines_out.append("（空）")
+        bait_lines.append("（空）")
 
-    owned = await FishDB.list_gear(uid)
-    if owned:
-        lines_out.append("拥有的渔具：")
-        for g in owned:
-            table = rods if g["kind"] == "rod" else lines
-            entry = table.get(g["gear_id"])
-            name = entry["name"] if entry else g["gear_id"]
-            state = "" if g["durability"] > 0 else "【已损坏】"
-            kind_name = "竿" if g["kind"] == "rod" else "线"
-            lines_out.append(f"  {name}（{kind_name}） 耐久{g['durability']}{state}")
-    lines_out.append("发送 换鱼竿/换鱼线 <名称> 可随时更换装备")
-    return "\n".join(lines_out)
+    # ==药水==（有则显示；使用中的带标注）
+    props = await FishDB.list_props(uid)
+    potion_lines = ["==药水=="]
+    shown_potion = False
+    for pid in C.POTION_ORDER:
+        count = props.get(pid, 0)
+        if count > 0:
+            mark = "（使用中）" if pid == potion_id else ""
+            potion_lines.append(f"{potions[pid]['name']} ×{count}{mark}")
+            shown_potion = True
+    if not shown_potion:
+        potion_lines.append("（空）")
+
+    # ==道具==（钓鱼背包中非药水的道具，如钓鱼扫荡劵）
+    egg_names = {k: v["name"] for k, v in C.egg_table().items()}
+    prop_lines = ["==道具=="]
+    shown_prop = False
+    for pid, count in props.items():
+        if pid in potions:
+            continue
+        prop_lines.append(f"{egg_names.get(pid, pid)} ×{count}")
+        shown_prop = True
+    if not shown_prop:
+        prop_lines.append("（空）")
+
+    hints = ["发送 换鱼竿/换鱼线/装备药水 <名称> 可更换装备"]
+
+    if not two_column:
+        sections = [equipped, gear_lib, bait_lines, potion_lines, prop_lines]
+        return "\n\n".join("\n".join(s) for s in sections) + "\n\n" + hints[0]
+
+    left = equipped + [""] + gear_lib
+    right = bait_lines + [""] + potion_lines + [""] + prop_lines + [""] + hints
+    height = max(len(left), len(right))
+    left += [""] * (height - len(left))
+    right += [""] * (height - len(right))
+    # 左右列以制表符分隔：官Bot 图片渲染器把右列固定画在画布中线
+    return "\n".join(f"{a}\t{b}".rstrip("\t") for a, b in zip(left, right))
 
 
 @gear_cmd.handle()
-async def handle_gear(bot: Bot, event: Event, uid: int = Depends(get_uid)) -> None:
-    await _finish_as_forward(gear_cmd, event, bot, await _gear_list_text(uid))
+async def handle_gear(
+    bot: Bot, event: Event, uid: int = Depends(get_uid)
+) -> None:
+    two_column = _is_qqbot_event(event)
+    text = await _gear_list_text(uid, two_column=two_column)
+    await _finish_as_forward(
+        gear_cmd, event, bot, text, width=1000 if two_column else 600
+    )
 
 
 # ===== 鱼竿 =====
@@ -1463,9 +1756,10 @@ async def handle_buy_rod(
             await buy_rod_cmd.finish(f"{result['name']}是初始鱼竿，无需购买")
         if result["reason"] == "owned":
             await buy_rod_cmd.finish(f"已拥有{result['name']}，无需重复购买")
-        if result["reason"] == "no_luckygold":
+        if result["reason"] == "no_currency":
             await buy_rod_cmd.finish(
-                f"购买失败，幸运币不足喔...（需要 {result['cost']} 幸运币）"
+                f"购买失败，{C.currency_name(result['currency'])}不足喔..."
+                f"（需要 {result['cost']} {C.currency_name(result['currency'])}）"
             )
         await buy_rod_cmd.finish("购买失败...")
 
@@ -1539,9 +1833,10 @@ async def handle_buy_line(
             await buy_line_cmd.finish(f"{result['name']}是初始鱼线，无需购买")
         if result["reason"] == "owned":
             await buy_line_cmd.finish(f"已拥有{result['name']}，无需重复购买")
-        if result["reason"] == "no_luckygold":
+        if result["reason"] == "no_currency":
             await buy_line_cmd.finish(
-                f"购买失败，幸运币不足喔...（需要 {result['cost']} 幸运币）"
+                f"购买失败，{C.currency_name(result['currency'])}不足喔..."
+                f"（需要 {result['cost']} {C.currency_name(result['currency'])}）"
             )
         await buy_line_cmd.finish("购买失败...")
 
@@ -1619,14 +1914,16 @@ async def handle_buy_bait(
             if result.get("sub") == "num":
                 await buy_bait_cmd.finish("数量必须大于0")
             await buy_bait_cmd.finish("初始鱼饵无限使用，无需购买~")
-        if result["reason"] == "no_gold":
+        if result["reason"] == "no_currency":
             await buy_bait_cmd.finish(
-                f"购买失败，金币不足喔...（需要 {result['cost']} 金币）"
+                f"购买失败，{C.currency_name(result['currency'])}不足喔..."
+                f"（需要 {result['cost']} {C.currency_name(result['currency'])}）"
             )
         await buy_bait_cmd.finish("购买失败...")
 
     await buy_bait_cmd.finish(
-        f"购买了{result['name']} ×{result['num']}（金币-{result['cost']}）"
+        f"购买了{result['name']} ×{result['num']}"
+        f"（{C.currency_name(result['currency'])}-{result['cost']}）"
     )
 
 
@@ -1653,6 +1950,42 @@ async def handle_equip_bait(
     await equip_bait_cmd.finish(f"已切换为{result['name']}{hint}")
 
 
+# ===== 药水（彩蛋「药水包」掉落；同时只能装备一种，用完自动卸下） =====
+equip_potion_cmd = on_command("装备药水", aliases={"换药水"}, priority=5, block=True)
+
+
+@equip_potion_cmd.handle()
+async def handle_equip_potion(
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+) -> None:
+    name = args.extract_plain_text().strip()
+    if not name:
+        await equip_potion_cmd.finish(
+            "用法: 装备药水/换药水 <药水名称>（药水可从彩蛋「药水包」中获得）"
+        )
+
+    potion_id, _ = _find_by_name(C.potion_table(), name)
+    result = await FishService.equip_potion(uid, potion_id)
+    if not result["ok"]:
+        if result["reason"] == "not_found":
+            await equip_potion_cmd.finish(
+                "没有这种药水（可从彩蛋「药水包」中获得：大鱼/稀有度/回溯药水）"
+            )
+        if result["reason"] == "not_owned":
+            await equip_potion_cmd.finish(
+                f"你还没有{result['name']}，先钓一个药水包吧~"
+            )
+        await equip_potion_cmd.finish("装备失败...")
+
+    effect = C.potion_table().get(potion_id, {}).get("desc", "")
+    await equip_potion_cmd.finish(
+        f"已装备{result['name']}（效果：{effect}，剩余 {result['count']} 瓶，"
+        "用完后自动卸下）\n"
+        "同时只能装备一种药水，发送 装备药水 <名称> 可随时更换"
+    )
+
+
 # ===== 幸运宝珠 =====
 buy_orb_cmd = on_command("买幸运宝珠", aliases={"购买幸运宝珠"}, priority=5, block=True)
 
@@ -1663,9 +1996,10 @@ async def handle_buy_orb(uid: int = Depends(get_uid)) -> None:
     if not result["ok"]:
         if result["reason"] == "owned":
             await buy_orb_cmd.finish(f"已拥有{result['name']}，无需重复购买")
-        if result["reason"] == "no_gold":
+        if result["reason"] == "no_currency":
             await buy_orb_cmd.finish(
-                f"购买失败，金币不足喔...（需要 {result['cost']} 金币）"
+                f"购买失败，{C.currency_name(result['currency'])}不足喔..."
+                f"（需要 {result['cost']} {C.currency_name(result['currency'])}）"
             )
         await buy_orb_cmd.finish("购买失败...")
 
@@ -1685,9 +2019,10 @@ async def handle_buy_pump(uid: int = Depends(get_uid)) -> None:
     if not result["ok"]:
         if result["reason"] == "owned":
             await buy_pump_cmd.finish(f"已拥有{result['name']}，无需重复购买")
-        if result["reason"] == "no_luckygold":
+        if result["reason"] == "no_currency":
             await buy_pump_cmd.finish(
-                f"购买失败，幸运币不足喔...（需要 {result['cost']} 幸运币）"
+                f"购买失败，{C.currency_name(result['currency'])}不足喔..."
+                f"（需要 {result['cost']} {C.currency_name(result['currency'])}）"
             )
         await buy_pump_cmd.finish("购买失败...")
 

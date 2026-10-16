@@ -24,7 +24,7 @@ from ...tools import get_uid, send_group_forward_msg, build_forward_chain
 from .petconfig import (
     GACHA_REWARDS, GACHA_CONSOLE_PRIZE, GACHA_CONFIG,
     EVOLUTIONS, PET_SHOP_ITEMS, PET_SKILLS,
-    GROWTH_STAGE_1, GROWTH_STAGE_2
+    GROWTH_STAGE_1, GROWTH_STAGE_2,
 )
 from .pet import (
     set_db_path, init_pet_database,
@@ -218,21 +218,22 @@ async def _finish_empty_gacha() -> None:
 
 @open_gacha_cmd.handle()
 async def handle_open_gacha(
-    event: Event, bot: Bot, 
+    event: Event, bot: Bot,
     args: Message = CommandArg(),
     uid: int = Depends(get_uid)
 ):
     gacha_name = args.extract_plain_text()
     if not gacha_name or "扭蛋" not in gacha_name:
         return
-    
+
     if gacha_name not in GACHA_CONFIG:
         await open_gacha_cmd.finish(f"未知的扭蛋类型，可用: {', '.join(GACHA_CONFIG.keys())}")
-    
+
+    pet_data = await get_user_pet(uid)
+
     if not await use_user_item(uid, gacha_name):
         await open_gacha_cmd.finish(f"你没有[{gacha_name}]！使用'购买 {gacha_name}'来获取。")
-    
-    pet_data = await get_user_pet(uid)
+
     if pet_data:
         return await _finish_existing_pet_gacha(uid, pet_data, gacha_name)
 

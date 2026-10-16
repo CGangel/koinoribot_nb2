@@ -1,11 +1,14 @@
 """新版钓鱼（fish）数据库层。
 
 表结构：
-- fish_players:    玩家状态（装备的鱼竿/鱼线实例、使用中的鱼饵、水族箱槽位、统计）
+- fish_players:    玩家状态（装备的鱼竿/鱼线实例、使用中的鱼饵、装备中的药水、水族箱槽位、统计）
 - fish_gear_items: 鱼竿/鱼线实例（含耐久；初始渔具不落库、由 NULL 表示）
 - fish_bait_bag:   商店鱼饵库存（uid + bait_id 唯一；初始鱼饵无限不落库）
+- fish_props:      钓鱼背包道具（uid + prop_id 唯一；彩蛋钓获的钓鱼扫荡劵与药水等）
 - fish_items:      鱼实例（背包/水族箱共用，place 区分）
-- fish_collection: 图鉴（按品种记录总数、历史最大级别与钓获时最大长度）
+- fish_collection: 图鉴（按品种记录总数、历史最大级别与钓获时最大长度；
+                   彩蛋单品共用本表，仅以行的存在标记已钓到——不累计
+                   次数、无级别与长度）
 - fish_collection_rewards: 图鉴奖励领取记录（uid + 稀有度 + 级别档 唯一；
                    每日次数上限加成与 SU 激活码权限由该表 + 配置推导）
 
@@ -117,6 +120,7 @@ class FishDB:
                 rod_item_id INTEGER,
                 line_item_id INTEGER,
                 bait_id TEXT NOT NULL DEFAULT 'bait_basic',
+                potion_id TEXT,
                 slots INTEGER NOT NULL DEFAULT 10,
                 orb_owned INTEGER NOT NULL DEFAULT 0,
                 orb_equipped INTEGER NOT NULL DEFAULT 0,
@@ -128,6 +132,13 @@ class FishDB:
                 FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
             )
         ''')
+
+        # 存量库补充药水装备列（ALTER 迁移，不重建表、保留玩家数据）
+        cursor.execute("PRAGMA table_info(fish_players)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if columns and "potion_id" not in columns:
+            cursor.execute("ALTER TABLE fish_players ADD COLUMN potion_id TEXT")
+            logger.info("fish_players 已补充 potion_id 列（药水装备位）")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fish_gear_items (
@@ -148,6 +159,17 @@ class FishDB:
                 count INTEGER NOT NULL DEFAULT 0,
                 updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (uid, bait_id),
+                FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fish_props (
+                uid INTEGER NOT NULL,
+                prop_id TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (uid, prop_id),
                 FOREIGN KEY (uid) REFERENCES user_uid_mapping(uid) ON UPDATE CASCADE ON DELETE CASCADE
             )
         ''')
@@ -203,9 +225,9 @@ class FishDB:
             conn = cls.get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT uid, rod_item_id, line_item_id, bait_id, slots,'
-                ' orb_owned, orb_equipped, orb_level, orb_energy, pump_owned,'
-                ' auto_sell'
+                'SELECT uid, rod_item_id, line_item_id, bait_id, potion_id,'
+                ' slots, orb_owned, orb_equipped, orb_level, orb_energy,'
+                ' pump_owned, auto_sell'
                 ' FROM fish_players WHERE uid = ?',
                 (uid,),
             )
@@ -218,6 +240,7 @@ class FishDB:
                 "rod_item_id": row["rod_item_id"],
                 "line_item_id": row["line_item_id"],
                 "bait_id": row["bait_id"],
+                "potion_id": row["potion_id"],
                 "slots": row["slots"],
                 "orb_owned": row["orb_owned"],
                 "orb_equipped": row["orb_equipped"],
@@ -239,6 +262,7 @@ class FishDB:
             "rod_item_id": None,
             "line_item_id": None,
             "bait_id": DEFAULT_BAIT,
+            "potion_id": None,
             "slots": aquarium()["initial_slots"],
             "orb_owned": 0,
             "orb_equipped": 0,
@@ -253,11 +277,12 @@ class FishDB:
             cursor = conn.cursor()
             cursor.execute(
                 'INSERT OR IGNORE INTO fish_players'
-                ' (uid, rod_item_id, line_item_id, bait_id, slots,'
+                ' (uid, rod_item_id, line_item_id, bait_id, potion_id, slots,'
                 '  orb_owned, orb_equipped, orb_level, orb_energy, pump_owned,'
                 '  auto_sell)'
-                ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (uid, None, None, player["bait_id"], player["slots"],
+                ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (uid, None, None, player["bait_id"], player["potion_id"],
+                 player["slots"],
                  player["orb_owned"], player["orb_equipped"],
                  player["orb_level"], player["orb_energy"],
                  player["pump_owned"], player["auto_sell"]),
@@ -278,10 +303,12 @@ class FishDB:
             cursor = conn.cursor()
             cursor.execute(
                 'UPDATE fish_players SET rod_item_id = ?, line_item_id = ?,'
-                ' bait_id = ?, slots = ?, orb_owned = ?, orb_equipped = ?,'
-                ' orb_level = ?, orb_energy = ?, pump_owned = ?, auto_sell = ?,'
+                ' bait_id = ?, potion_id = ?, slots = ?, orb_owned = ?,'
+                ' orb_equipped = ?, orb_level = ?, orb_energy = ?,'
+                ' pump_owned = ?, auto_sell = ?,'
                 ' updated_time = CURRENT_TIMESTAMP WHERE uid = ?',
-                (player["rod_item_id"], player["line_item_id"], player["bait_id"],
+                (player["rod_item_id"], player["line_item_id"],
+                 player["bait_id"], player.get("potion_id"),
                  player["slots"], player["orb_owned"], player["orb_equipped"],
                  player["orb_level"], player["orb_energy"], player["pump_owned"],
                  player["auto_sell"], player["uid"]),
@@ -422,6 +449,83 @@ class FishDB:
                 'UPDATE fish_bait_bag SET count = count - ?, updated_time = CURRENT_TIMESTAMP'
                 ' WHERE uid = ? AND bait_id = ? AND count >= ?',
                 (num, uid, bait_id, num),
+            )
+            changed = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return changed
+
+        return await asyncio.get_event_loop().run_in_executor(None, _consume)
+
+    # ===== 钓鱼背包道具（彩蛋钓获的钓鱼扫荡劵等） =====
+
+    @classmethod
+    async def add_prop(cls, uid: int, prop_id: str, num: int = 1):
+        """增加道具库存"""
+        cls.init_fish_database()
+
+        def _add():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO fish_props (uid, prop_id, count) VALUES (?, ?, ?)'
+                ' ON CONFLICT(uid, prop_id) DO UPDATE SET'
+                ' count = count + excluded.count, updated_time = CURRENT_TIMESTAMP',
+                (uid, prop_id, num),
+            )
+            conn.commit()
+            conn.close()
+
+        await asyncio.get_event_loop().run_in_executor(None, _add)
+
+    @classmethod
+    async def get_prop_count(cls, uid: int, prop_id: str) -> int:
+        """某道具的库存数量"""
+        cls.init_fish_database()
+
+        def _query():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT count FROM fish_props WHERE uid = ? AND prop_id = ?',
+                (uid, prop_id),
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row["count"] if row else 0
+
+        return await asyncio.get_event_loop().run_in_executor(None, _query)
+
+    @classmethod
+    async def list_props(cls, uid: int) -> dict[str, int]:
+        """全部道具库存 {prop_id: count}"""
+        cls.init_fish_database()
+
+        def _query():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT prop_id, count FROM fish_props WHERE uid = ? ORDER BY prop_id',
+                (uid,),
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return {row["prop_id"]: row["count"] for row in rows}
+
+        return await asyncio.get_event_loop().run_in_executor(None, _query)
+
+    @classmethod
+    async def consume_prop(cls, uid: int, prop_id: str, num: int = 1) -> bool:
+        """原子消耗道具，库存不足返回 False（不修改）"""
+        cls.init_fish_database()
+
+        def _consume():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE fish_props SET count = count - ?, updated_time = CURRENT_TIMESTAMP'
+                ' WHERE uid = ? AND prop_id = ? AND count >= ?',
+                (num, uid, prop_id, num),
             )
             changed = cursor.rowcount > 0
             conn.commit()
@@ -615,6 +719,32 @@ class FishDB:
                 conn.close()
 
         return await asyncio.get_event_loop().run_in_executor(None, _update)
+
+    @classmethod
+    async def mark_egg_caught(cls, uid: int, egg_id: str) -> bool:
+        """标记彩蛋单品已钓到（INSERT OR IGNORE，只记首钓标记）。
+
+        图鉴口径：彩蛋仅以行的存在表示“已钓到”，不累计次数、无级别与
+        长度。返回是否本次首次写入（False = 之前已钓到过）。
+        """
+        cls.init_fish_database()
+
+        def _mark():
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR IGNORE INTO fish_collection"
+                " (uid, species_id, total_count, max_grade, max_length,"
+                "  first_caught_time)"
+                " VALUES (?, ?, 1, '彩蛋', 0, ?)",
+                (uid, egg_id, _now()),
+            )
+            first = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            return first
+
+        return await asyncio.get_event_loop().run_in_executor(None, _mark)
 
     @classmethod
     async def get_collection(cls, uid: int) -> list[dict]:

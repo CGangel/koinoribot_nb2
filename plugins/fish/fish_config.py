@@ -15,6 +15,12 @@
 - 稀有度基准权重 / 级别区间 / 品种表 / 商店表 / 槽位基准价：
   均可配置，缺项或非法值回落默认；初始鱼竿/鱼线/鱼饵条目被删除时
   自动补回（保证游戏可玩）。
+- 商店计价货币：每件商品的购买价可单独指定 currency（gold 金币 /
+  kirastone 宝石 / luckygold 幸运币）；鱼竿/鱼线的修理固定金币；
+  非法值按类别回落（鱼竿/鱼线→幸运币，鱼饵→金币）。
+- 彩蛋：独立于稀有度的特殊钓获栏（固定 5 件单品，权重各自可调）。
+  每次钓鱼先按彩蛋概率判定，命中则按单品权重抽取（彩蛋不判定空军），
+  未命中按原稀有度权重抽取鱼类；幸运暴击必然走鱼类分支。
 - 空军：每种鱼有各自的基础空军概率（品种表 air_force_rate，百分点）；
   最终空军率 =（基础空军率 − 总幸运值）/ 100，下限 0。
 
@@ -22,7 +28,12 @@ TODO(balance): 具体数值待玩法设计定稿。
 """
 
 from ...config_store import config
-from ...config_store import _FISH_COLLECTION_REWARDS_DEFAULT
+from ...config_store import (
+    FISH_CURRENCIES,
+    _FISH_COLLECTION_REWARDS_DEFAULT,
+    _FISH_EGG_ITEMS_DEFAULT,
+    _FISH_POTION_ITEMS_DEFAULT,
+)
 
 # ================== 稀有度（品种分层，固定 5 档） ==================
 RARITIES: dict[str, dict] = {
@@ -46,6 +57,24 @@ def rarity_weights() -> dict[str, float]:
     """稀有度基准权重（配置面板 fish_rarity_weights 覆盖；非法项回落默认）"""
     return _norm_weights(config.fish_rarity_weights, RARITY_ORDER,
                          _DEFAULT_RARITY_WEIGHTS)
+
+
+# ================== 商店计价货币 ==================
+# 商店每件商品的购买价均可单独指定计价货币（currency 键）；
+# 鱼竿/鱼线的修理固定金币。非法值按类别回落默认。
+# 目录唯一数据源在 config_store.FISH_CURRENCIES（面板下拉与展示共用）。
+CURRENCIES: dict[str, str] = FISH_CURRENCIES
+
+
+def currency_name(key: str) -> str:
+    """货币键的中文名（未知键回落「金币」）"""
+    return CURRENCIES.get(key, CURRENCIES["gold"])
+
+
+def _norm_currency(raw, default: str) -> str:
+    if raw in CURRENCIES:
+        return raw
+    return default
 
 
 # ================== 级别（D/C/B/A/S/X） ==================
@@ -257,7 +286,7 @@ DEFAULT_LINE = "line_basic"
 DEFAULT_BAIT = "bait_basic"
 
 def _norm_gear_common(entry) -> dict | None:
-    """鱼竿/鱼线的公共字段（名称/价格/耐久/修复价）"""
+    """鱼竿/鱼线的公共字段（名称/价格/计价货币/耐久/修复价）"""
     if not isinstance(entry, dict) or not str(entry.get("name", "")).strip():
         return None
     try:
@@ -274,6 +303,7 @@ def _norm_gear_common(entry) -> dict | None:
     return {
         "name": str(entry["name"]),
         "price": price,
+        "currency": _norm_currency(entry.get("currency"), "luckygold"),
         "desc": str(entry.get("desc", "") or ""),
         "durability": durability,
         "repair_price": repair,
@@ -313,6 +343,7 @@ def _norm_bait(entry) -> dict | None:
     return {
         "name": str(entry["name"]),
         "price": price,
+        "currency": _norm_currency(entry.get("currency"), "gold"),
         "desc": str(entry.get("desc", "") or ""),
         "unlimited": bool(entry.get("unlimited", False)),
         "rarity_weights": _norm_weights(
@@ -335,9 +366,9 @@ def _table(config_value, normalizer, fallback: dict) -> dict[str, dict]:
 
 
 def rod_table() -> dict[str, dict]:
-    """鱼竿商品表（售价为幸运币）；初始鱼竿条目缺失时自动补回"""
+    """鱼竿商品表（price 为售价、currency 为计价货币）；初始鱼竿条目缺失时自动补回"""
     return _table(config.fish_shop_rods, _norm_rod, {
-        DEFAULT_ROD: {"name": "木质鱼竿", "price": 0,
+        DEFAULT_ROD: {"name": "木质鱼竿", "price": 0, "currency": "luckygold",
                       "desc": "溪边削出的第一根竿，握在手里刚刚好",
                       "durability": None, "repair_price": 0,
                       "grade_weights": dict(_DEFAULT_GRADE_WEIGHTS)},
@@ -345,20 +376,126 @@ def rod_table() -> dict[str, dict]:
 
 
 def line_table() -> dict[str, dict]:
-    """鱼线商品表（售价为幸运币）；初始鱼线条目缺失时自动补回"""
+    """鱼线商品表（price 为售价、currency 为计价货币）；初始鱼线条目缺失时自动补回"""
     return _table(config.fish_shop_lines, _norm_line, {
-        DEFAULT_LINE: {"name": "尼龙鱼线", "price": 0,
+        DEFAULT_LINE: {"name": "尼龙鱼线", "price": 0, "currency": "luckygold",
                        "desc": "最常见的尼龙线，简单可靠",
                        "durability": None, "repair_price": 0, "luck": 0},
     })
 
 
 def bait_table() -> dict[str, dict]:
-    """鱼饵商品表（售价为金币）；初始鱼饵条目缺失时自动补回"""
+    """鱼饵商品表（price 为单价、currency 为计价货币）；初始鱼饵条目缺失时自动补回"""
     return _table(config.fish_shop_baits, _norm_bait, {
-        DEFAULT_BAIT: {"name": "普通鱼饵", "price": 0, "desc": "水里到处都有，管够",
+        DEFAULT_BAIT: {"name": "普通鱼饵", "price": 0, "currency": "gold",
+                       "desc": "水里到处都有，管够",
                        "unlimited": True,
                        "rarity_weights": dict(_DEFAULT_RARITY_WEIGHTS)},
+    })
+
+
+# ================== 彩蛋（独立于稀有度的特殊钓获栏） ==================
+# 每次钓鱼先按彩蛋概率（fish_egg_rate，百分点）判定是否命中彩蛋；命中则
+# 按各单品 weight 权重抽取一件（彩蛋钓获不判定空军），未命中按原稀有度
+# 权重抽取鱼类；幸运暴击必然走鱼类分支。条目固定 4 件，名称与条目均
+# 不可增删改，weight 各自可调；被删条目自动补回（与商店表回落策略一致）。
+# 鱼饵包/无人认领的钱包/药水包三件固定钓到自动开启（无法储存），发放
+# 路径按 id 分派（见 service._open_egg_item）；图鉴只记是否钓到
+#（无次数/级别/长度，未钓到时隐藏名称）。
+
+# 彩蛋单品 id（顺序即面板/图鉴展示顺序）
+EGG_ORDER: list[str] = list(_FISH_EGG_ITEMS_DEFAULT)
+
+# 前三件固定自动开启（不产生可储存物品，直接执行奖励发放分支）
+EGG_BAIT_PACK_ID = "egg_bait_pack"       # 鱼饵包 → 随机鱼饵
+EGG_WALLET_ID = "egg_wallet"             # 无人认领的钱包 → 金币、幸运币
+EGG_POTION_PACK_ID = "egg_potion_pack"   # 药水包 → 随机药水
+# 第四件入钓鱼背包
+EGG_SWEEP_TICKET_ID = "egg_sweep_ticket"   # 钓鱼扫荡劵 → 钓鱼背包
+
+
+def egg_rate() -> float:
+    """彩蛋概率（百分点，0~100），配置可改"""
+    try:
+        return min(100.0, max(0.0, float(config.fish_egg_rate)))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _norm_egg(entry) -> dict | None:
+    """规范化彩蛋单品条目（缺字段/非法值按内置默认补齐；多余键丢弃）"""
+    if not isinstance(entry, dict) or not str(entry.get("name", "")).strip():
+        return None
+    try:
+        weight = max(0.0, float(entry.get("weight", 20)))
+    except (TypeError, ValueError):
+        weight = 20.0
+    return {
+        "name": str(entry["name"]),
+        "weight": weight,
+        "desc": str(entry.get("desc", "") or ""),
+        "art": str(entry.get("art", "") or ""),
+    }
+
+
+def egg_table() -> dict[str, dict]:
+    """彩蛋单品目录（配置面板可调权重/描述/图片；条目被删时自动补回）。
+
+    按 EGG_ORDER 过滤：存量配置里已被下架的旧条目（如 egg_gacha）不再
+    出现在目录/图鉴/背包中。"""
+    table = _table(config.fish_egg_items, _norm_egg, {
+        key: dict(value) for key, value in _FISH_EGG_ITEMS_DEFAULT.items()
+    })
+    return {key: table[key] for key in EGG_ORDER if key in table}
+
+
+def egg_weights() -> dict[str, float]:
+    """彩蛋单品抽取权重（按 EGG_ORDER 全集规范化；全 0 时回落等权）"""
+    table = egg_table()
+    weights = {key: float(table.get(key, {}).get("weight", 0.0)) for key in EGG_ORDER}
+    if sum(weights.values()) <= 0:
+        weights = {key: 1.0 for key in EGG_ORDER}
+    return weights
+
+
+# ================== 药水（钓鱼背包道具，彩蛋「药水包」掉落） ==================
+# 固定 3 种（大鱼/稀有度/回溯）：存储复用 fish_props（钓鱼背包道具表），
+# 装备位在 fish_players.potion_id（同时只能装备一种，用完自动卸下）。
+# 条目与名称固定不可增删改。
+
+# 药水 id（顺序即面板/背包展示顺序）
+POTION_ORDER: list[str] = list(_FISH_POTION_ITEMS_DEFAULT)
+POTION_RARITY_ID = "potion_rarity"      # 稀有度药水
+POTION_BIGFISH_ID = "potion_bigfish"    # 大鱼药水
+POTION_ROLLBACK_ID = "potion_rollback"  # 回溯药水
+
+# 药水效果（固定规则，非面板配置项）：
+# - 稀有度/大鱼药水：非彩蛋钓获各消耗 1 个，把对应抽取的随机落点值
+#   加上加成（落点与加成之和不超过 1，即最高档封顶）
+# - 回溯药水：空军时消耗 1 个，按原有空军概率重判一次（仅一次），
+#   见 service.rollback_cast
+POTION_RARITY_BONUS = 0.02
+POTION_BIGFISH_BONUS = 0.05
+
+# 鱼饵包的两种掉落（固定引用商店鱼饵条目；表条目固定不可删，稳定存在）
+EGG_BAIT_PACK_COMMON_ID = "bait_shrimp"   # 75%：樱花鱼饵 ×3~6
+EGG_BAIT_PACK_RARE_ID = "bait_lucky"      # 25%：梦幻鱼饵 ×1~3
+
+
+def _norm_potion(entry) -> dict | None:
+    """规范化药水条目（缺字段/非法值按内置默认补齐；多余键丢弃）"""
+    if not isinstance(entry, dict) or not str(entry.get("name", "")).strip():
+        return None
+    return {
+        "name": str(entry["name"]),
+        "desc": str(entry.get("desc", "") or ""),
+    }
+
+
+def potion_table() -> dict[str, dict]:
+    """药水目录（配置面板可改描述；条目被删时自动补回）"""
+    return _table(config.fish_potion_items, _norm_potion, {
+        key: dict(value) for key, value in _FISH_POTION_ITEMS_DEFAULT.items()
     })
 
 
@@ -367,7 +504,7 @@ def bait_table() -> dict[str, dict]:
 # 幸运宝珠是唯一单件装备（只能购买一次、购买后自动装备、无耐久、不可卸下、
 # 不可升级以外的方式变更）；名称/价格/描述与全部数值均可在配置面板修改。
 def orb_info() -> dict:
-    """幸运宝珠的展示信息（名称/价格/描述），配置可改"""
+    """幸运宝珠的展示信息（名称/价格/计价货币/描述），配置可改"""
     try:
         price = max(0, int(config.fish_orb_price))
     except (TypeError, ValueError):
@@ -375,6 +512,7 @@ def orb_info() -> dict:
     return {
         "name": str(config.fish_orb_name or "幸运宝珠"),
         "price": price,
+        "currency": _norm_currency(config.fish_orb_currency, "gold"),
         "desc": str(config.fish_orb_desc or ""),
     }
 
@@ -387,7 +525,7 @@ def _orb_int(value, default: int, low: int = 1) -> int:
 
 
 def pump_info() -> dict:
-    """氧气泵的展示信息（名称/价格/描述/成长加成），配置可改"""
+    """氧气泵的展示信息（名称/价格/计价货币/描述/成长加成），配置可改"""
     try:
         price = max(0, int(config.fish_pump_price))
     except (TypeError, ValueError):
@@ -399,6 +537,7 @@ def pump_info() -> dict:
     return {
         "name": str(config.fish_pump_name or "氧气泵"),
         "price": price,
+        "currency": _norm_currency(config.fish_pump_currency, "luckygold"),
         "desc": str(config.fish_pump_desc or ""),
         "growth_bonus": bonus,
     }

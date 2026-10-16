@@ -14,6 +14,14 @@
 中栏信息与正常钓获一致，左栏缩略图下方原记录徽标位改贴固定文案。
 统一由 ``air=True`` 切换。
 
+彩蛋（钓到彩蛋单品）用**彩蛋底图变体**（``egg=True``）：右栏三个选项
+按钮位合并为一个信息块，折行粘贴发放结果；中栏仅稀有度面板（彩蛋无
+等级/售价等），名称/描述贴在缩略图下方；无自定义美术时左栏补一枚简笔
+彩蛋挂在鱼线上。
+
+装备面板 5 行：鱼竿/鱼线/鱼饵/宝珠/药水；药水行两行文本——
+名称(本次钓鱼后剩余数量) + 效果描述。
+
 渲染失败（缺底图/字体、PIL 不可用等）返回 None，由调用方回退到文本。
 """
 
@@ -113,6 +121,49 @@ def _gear_text(item: dict, with_left: bool = True) -> str:
     return f"{name}（{left}/{item['max']}）"
 
 
+def _wrap_text(text: str, font, max_width: int) -> list[str]:
+    """按像素宽度逐字折行（中文无空格分词，逐字贪心即可）"""
+    lines, cur = [], ""
+    for ch in str(text):
+        if ch == "\n":
+            lines.append(cur)
+            cur = ""
+            continue
+        if cur and font.getlength(cur + ch) > max_width:
+            lines.append(cur)
+            cur = ch
+        else:
+            cur += ch
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _draw_egg_placeholder(draw, scale: int) -> None:
+    """无自定义美术时的简笔彩蛋：挂在鱼线末端的蛋形 + 锯齿彩带 + 圆点。
+
+    坐标为 1x 设计稿（左栏中线 x=122，鱼线末端 y=206，蛋上缘贴线），
+    绘制时统一乘 scale；多边形一律以 (x, y) 点元组传参，避免扁平列表
+    反转时打乱 x/y 配对。
+    """
+
+    def box(x0, y0, x1, y1):
+        return (round(x0 * scale), round(y0 * scale),
+                round(x1 * scale), round(y1 * scale))
+
+    def pt(x, y):
+        return (round(x * scale), round(y * scale))
+
+    draw.ellipse(box(96, 204, 148, 278), fill="#FFFDF4",
+                 outline="#D7B18C", width=max(2, round(1.5 * scale)))
+    # 中部锯齿彩带（上下两条同形波线，底边按反向点序围合）
+    top = [pt(100, 240), pt(111, 231), pt(122, 240), pt(133, 231), pt(144, 240)]
+    bottom = [pt(100, 256), pt(111, 247), pt(122, 256), pt(133, 247), pt(144, 256)]
+    draw.polygon(top + bottom[::-1], fill="#F0A6C8")
+    for cx, cy, r, color in ((112, 218, 3.5, "#A8D8F0"), (132, 218, 3.5, "#F7D774")):
+        draw.ellipse(box(cx - r, cy - r, cx + r, cy + r), fill=color)
+
+
 def build_fields(
     result: dict, remaining, total, badge: str = "", orb: dict = None,
     gear: dict = None, badge2: str = "",
@@ -144,16 +195,68 @@ def build_fields(
         "auto_sold": bool(result.get("auto_sold")),
         "auto_tank": bool(result.get("auto_tank")),
         "air": air,
+        "egg": False,
         "gear_rod": "",
         "gear_line": "",
         "gear_bait": "",
         "gear_orb": "",
+        "gear_potion": "",
+        "gear_potion_desc": "",
+    }
+    fields.update(_gear_orb_fields(orb, gear))
+    return fields
+
+
+def build_egg_fields(
+    result: dict, remaining, total, badge: str = "", orb: dict = None,
+    gear: dict = None,
+) -> dict:
+    """把彩蛋钓获整理成卡片字段（彩蛋底图变体）。
+
+    彩蛋无 等级/售价/幸运值/成长，中栏只显示稀有度「彩蛋」；缩略图下方
+    贴 单品名 + 描述；发放结果交给右栏信息块（egg_info，渲染时折行）。
+    """
+    egg = result["egg"]
+    return {
+        "title": f"你钓上来一个彩蛋——【{egg['name']}】！",
+        "egg": True,
+        "air": False,
+        "name": egg["name"],
+        "length": egg.get("desc", ""),
+        "badge": badge,
+        "badge2": "",
+        "rarity": "彩蛋",
+        "remaining": "∞" if total is None else f"{remaining} / {total}",
+        "egg_info": (result.get("grant") or {}).get("text", ""),
+        **_gear_orb_fields(orb, gear),
+    }
+
+
+def _gear_orb_fields(orb: dict, gear: dict) -> dict:
+    """装备区 5 行字段：鱼竿/鱼线/鱼饵/宝珠/药水（钓鱼类与彩蛋共用）"""
+    fields = {
+        "gear_rod": "", "gear_line": "", "gear_bait": "",
+        "gear_orb": "", "gear_potion": "", "gear_potion_desc": "",
     }
     if gear:
         rod, line, bait = gear.get("rod"), gear.get("line"), gear.get("bait")
         fields["gear_rod"] = _gear_text(rod)
         fields["gear_line"] = _gear_text(line)
         fields["gear_bait"] = _gear_text(bait)
+    # 药水行：名称(本次钓鱼后剩余数量)，第二行效果描述；本杆用完
+    # （left=0）改显示「已用完」+ 卸下提示；未装备占位
+    potion = (gear or {}).get("potion")
+    if potion:
+        if potion.get("left", 0) <= 0:
+            fields["gear_potion"] = f"{potion.get('name', '')}(已用完)"
+            fields["gear_potion_desc"] = "本杆已生效，自动卸下"
+        else:
+            fields["gear_potion"] = (
+                f"{potion.get('name', '')}(剩余 {potion.get('left', 0)} 个)"
+            )
+            fields["gear_potion_desc"] = potion.get("desc") or ""
+    else:
+        fields["gear_potion"] = "未装备"
     # 幸运宝珠（装备区第四行）：本体暴击 > 能量已满 > 能量积攒 > 未拥有
     if not orb:
         fields["gear_orb"] = "未拥有"
@@ -177,11 +280,14 @@ def render(
     rarity: str,
     art_bytes: Optional[bytes] = None,
     air: Optional[bool] = None,
+    egg: Optional[bool] = None,
 ) -> Optional[bytes]:
     """按字段与稀有度主题渲染卡片 PNG；失败返回 None。
 
     air 为 True 时用空军底图变体（无鱼线/无选项按钮）并贴空军固定文案；
     默认取 ``fields["air"]``（build_fields 已写入），便于调用方直接透传。
+    egg 为 True 时用彩蛋底图变体（右栏合并信息块），默认取
+    ``fields["egg"]``（build_egg_fields 已写入）。
     """
     import io
 
@@ -192,11 +298,17 @@ def render(
         return None
     if air is None:
         air = bool(fields.get("air"))
+    if egg is None:
+        egg = bool(fields.get("egg"))
     themes = spec["themes"]
     theme = themes.get(rarity) or themes[spec["default_theme"]]
     try:
         scale = spec["scale"]
-        img = _base(theme["air_image" if air else "image"])
+        if egg:
+            image_name = theme.get("egg_image") or theme["image"]
+        else:
+            image_name = theme["air_image" if air else "image"]
+        img = _base(image_name)
         draw = ImageDraw.Draw(img)
         art_box = spec["art_box"]
         if art_bytes:
@@ -204,19 +316,25 @@ def render(
             # 靠左栏中线（鱼线末端）对齐
             art, pos = _fit_art(art_bytes, tuple(art_box), scale)
             img.paste(art, pos, art)
+        elif egg:
+            # 彩蛋单品未配美术：补一枚简笔彩蛋挂在鱼线上
+            _draw_egg_placeholder(draw, scale)
 
         def put(x, y, text, size, color, anchor):
             draw.text((int(x * scale), int(y * scale)), text, fill=color,
                       font=_font(int(size * scale)), anchor=anchor)
 
         # 固定标签：关联字段为空（该栏不显示）时跳过；
-        # 自动处理（已自动售出/已自动入箱）与空军时“请选择”表头不显示
+        # 自动处理（已自动售出/已自动入箱）与空军/彩蛋时“请选择”表头
+        # 不显示；彩蛋时中栏表头“鱼的信息”不显示（改贴“彩 蛋 信 息”）
         auto_state = (
             "已自动售出" if fields.get("auto_sold")
             else ("已放入水族箱" if fields.get("auto_tank") else "")
         )
         for key, item in spec["labels"].items():
-            if (auto_state or air) and key == "opt_hdr":
+            if key == "opt_hdr" and (auto_state or air or egg):
+                continue
+            if key == "info_hdr" and egg:
                 continue
             field = item.get("field")
             if field and not fields.get(field):
@@ -247,11 +365,32 @@ def render(
             )
             put(slot["x"], slot["y"], text, slot["size"], color, slot["anchor"])
 
-        # 选项区：空军时无选项（右栏底图也不画按钮），改贴固定文案；
-        # 自动处理（已自动售出/已自动入箱）时右侧整块改为对应文案；
-        # 放生仅在可放生（幸运值 ≥1）时出现，出现时略微上移，
-        # 下方附一行小号绿字“获得N枚幸运币”
-        if air:
+        # 选项区：彩蛋时右栏信息块贴折行后的发放结果；空军时无选项
+        # （右栏底图也不画按钮），改贴固定文案；自动处理（已自动售出/
+        # 已自动入箱）时右侧整块改为对应文案；放生仅在可放生（幸运值 ≥1）
+        # 时出现，出现时略微上移，下方附一行小号绿字“获得N枚幸运币”
+        if egg:
+            egg_spec = spec.get("egg") or {}
+            hdr = egg_spec.get("hdr")
+            if hdr:
+                put(hdr["x"], hdr["y"], hdr["text"], hdr["size"],
+                    hdr["color"], hdr["anchor"])
+            info = str(fields.get("egg_info") or "")
+            if info:
+                conf = egg_spec.get("text") or {}
+                size = int(conf.get("size", 13))
+                font = _font(int(size * scale))
+                max_px = float(conf.get("width", 118)) * scale
+                lines = _wrap_text(info, font, max_px)
+                x, y = conf.get("x", 738), float(conf.get("y", 247))
+                line_h = float(conf.get("line_h", 21))
+                color = conf.get("color") or theme["title_color"]
+                # 首行按行数回退，使整段相对块中心垂直居中
+                y0 = y - line_h * (len(lines) - 1) / 2
+                for i, line in enumerate(lines):
+                    put(x, y0 + line_h * i, line, size, color,
+                        conf.get("anchor", "mm"))
+        elif air:
             for item in spec["air"]["texts"]:
                 put(item["x"], item["y"], item["text"], item["size"],
                     item["color"], item["anchor"])

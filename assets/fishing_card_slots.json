@@ -96,7 +96,7 @@
     },
     "lb_rod": {
       "x": 422,
-      "y": 204,
+      "y": 189,
       "size": 13,
       "color": "#9A7A5C",
       "text": "鱼竿",
@@ -105,7 +105,7 @@
     },
     "lb_line": {
       "x": 422,
-      "y": 276,
+      "y": 250,
       "size": 13,
       "color": "#9A7A5C",
       "text": "鱼线",
@@ -114,7 +114,7 @@
     },
     "lb_bait": {
       "x": 422,
-      "y": 348,
+      "y": 312,
       "size": 13,
       "color": "#9A7A5C",
       "text": "鱼饵",
@@ -123,11 +123,20 @@
     },
     "lb_orb": {
       "x": 422,
-      "y": 420,
+      "y": 374,
       "size": 13,
       "color": "#9A7A5C",
       "text": "宝珠",
       "field": "gear_orb",
+      "anchor": "lm"
+    },
+    "lb_potion": {
+      "x": 422,
+      "y": 439,
+      "size": 13,
+      "color": "#9A7A5C",
+      "text": "药水",
+      "field": "gear_potion",
       "anchor": "lm"
     },
     "lb_remain": {
@@ -220,31 +229,45 @@
     },
     "gear_rod": {
       "x": 468,
-      "y": 204,
+      "y": 189,
       "anchor": "lm",
       "size": 13,
       "color": "#3A2A1C"
     },
     "gear_line": {
       "x": 468,
-      "y": 276,
+      "y": 250,
       "anchor": "lm",
       "size": 13,
       "color": "#3A2A1C"
     },
     "gear_bait": {
       "x": 468,
-      "y": 348,
+      "y": 312,
       "anchor": "lm",
       "size": 13,
       "color": "#3A2A1C"
     },
     "gear_orb": {
       "x": 468,
-      "y": 420,
+      "y": 374,
       "anchor": "lm",
       "size": 13,
       "color": "#C08A2E"
+    },
+    "gear_potion": {
+      "x": 468,
+      "y": 430,
+      "anchor": "lm",
+      "size": 13,
+      "color": "#3A2A1C"
+    },
+    "gear_potion_desc": {
+      "x": 468,
+      "y": 449,
+      "anchor": "lm",
+      "size": 11,
+      "color": "#96785C"
     },
     "remaining": {
       "x": 680,
@@ -260,7 +283,8 @@
       "稀有": "#2E7AC4",
       "史诗": "#7A5AC8",
       "传说": "#D9862E",
-      "神话": "#CE4239"
+      "神话": "#CE4239",
+      "彩蛋": "#C2508B"
     },
     "grade": {
       "D": "#8A94A0",
@@ -301,6 +325,13 @@
       "air_image": "fishing_card_mythic_air.png",
       "title_color": "#FFFFFF",
       "tag_color": "#FBDDD9"
+    },
+    "彩蛋": {
+      "image": "fishing_card_egg.png",
+      "air_image": "fishing_card_egg.png",
+      "egg_image": "fishing_card_egg.png",
+      "title_color": "#FFFFFF",
+      "tag_color": "#FBE3EF"
     }
   },
   "air": {
@@ -330,6 +361,25 @@
         "text": "下次再试试吧"
       }
     ]
+  },
+  "egg": {
+    "hdr": {
+      "x": 668,
+      "y": 144,
+      "size": 12,
+      "color": "#9A7A5C",
+      "text": "彩 蛋 信 息",
+      "anchor": "lm"
+    },
+    "text": {
+      "x": 738,
+      "y": 247,
+      "line_h": 21,
+      "size": 13,
+      "color": "#3A2A1C",
+      "width": 118,
+      "anchor": "mm"
+    }
   },
   "options": [
     {

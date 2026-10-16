@@ -15,11 +15,20 @@
 不画三个选项按钮（空军无从选择，渲染时改贴固定文案）。中栏信息面板与
 「今日剩余钓鱼次数」框保持不变，卡片因此与正常钓获大致相同。
 
+**彩蛋变体**（``fishing_card_egg.png``，主题「彩蛋」）：钓到彩蛋单品用的
+专属布局——中栏只保留稀有度面板（彩蛋无等级/售价/幸运值/成长），右栏
+三个选项按钮合并为一个「彩蛋信息」块（发放结果由渲染时按行折行粘贴），
+左栏与正常底图一样带鱼线（彩蛋挂在线上，无美术时由渲染层补简笔彩蛋）。
+
+装备面板统一 5 行（鱼竿/鱼线/鱼饵/宝珠/药水）：行高由 4 行时的 77px
+压缩到 61.6px，药水行占两行文本（名称(剩余) + 效果描述）。
+
 本脚本导出粘贴槽位表 ``assets/fishing_card_slots.json``：``labels``
 固定标签、``slots`` 动态值、``themes`` 各主题的底图与文字色、``air``
-空军专用文案（固定文本与坐标）、``options`` 选项文案。坐标以 820x470
-的 1 倍设计稿为准，``anchor`` 为 PIL 文本锚点（含 ``m`` 表示以 y 为垂直
-中心）；底图为 2 倍图，粘贴时 x/y/字号整体乘以 ``scale``。
+空军专用文案（固定文本与坐标）、``egg`` 彩蛋块参数、``options`` 选项
+文案。坐标以 820x470 的 1 倍设计稿为准，``anchor`` 为 PIL 文本锚点
+（含 ``m`` 表示以 y 为垂直中心）；底图为 2 倍图，粘贴时 x/y/字号整体
+乘以 ``scale``。
 
 用法：
     python assets/build_fishing_card.py            # 仅重新生成底图
@@ -63,6 +72,7 @@ RARITY_COLORS = {
     "史诗": "#7A5AC8",   # 紫
     "传说": "#D9862E",   # 橙
     "神话": "#CE4239",   # 红
+    "彩蛋": "#C2508B",   # 粉（彩蛋主题）
 }
 # 各等级专属色：D→X 由冷到暖递进，与稀有度色系区分
 GRADE_COLORS = {
@@ -92,6 +102,8 @@ THEMES = {
              "title": "#FFFFFF", "tag": "#FFF1DC"},
     "神话": {"key": "mythic", "header": "#E4574F", "dark": "#D0483F",
              "title": "#FFFFFF", "tag": "#FBDDD9"},
+    "彩蛋": {"key": "egg", "header": "#E27FAE", "dark": "#D06A9C",
+             "title": "#FFFFFF", "tag": "#FBE3EF"},
 }
 DEFAULT_THEME = "传说"      # 未知稀有度回落
 
@@ -115,6 +127,16 @@ AIR_TEXTS = [
      "color": OPT_COLORS[0], "text": "下次再试试吧"},
 ]
 
+# 彩蛋变体：右栏三个选项按钮位合并为一个信息块（仅一块圆角面板），
+# 块内粘贴发放结果（渲染时按宽度折行、水平居中并相对块垂直居中）；
+# 块上方小标题「彩 蛋 信 息」。折行参数：x 为块中心，width 为块内可用
+# 文本宽度（1x），y 为块的垂直中心，line_h 为行距
+EGG_BLOCK = (668, 162, 140, 170)   # 与三个选项按钮的外接区域一致
+EGG_HDR = {"x": 668, "y": 144, "size": 12, "color": LABEL,
+           "text": "彩 蛋 信 息", "anchor": "lm"}
+EGG_TEXT = {"x": 738, "y": 247, "line_h": 21, "size": 13,
+            "color": VALUE_COLOR, "width": 118, "anchor": "mm"}
+
 # 中栏面板（x, y, w, h）
 PANELS = [
     (248, 158, 150, 50),   # 稀有度
@@ -123,10 +145,11 @@ PANELS = [
     (248, 326, 150, 50),   # 幸运值
     (248, 384, 150, 82),   # 可成长至（两行）
 ]
-# 装备面板：与左侧信息列等高（158..466），容纳 鱼竿/鱼线/鱼饵/幸运宝珠 四行；
-# 右沿 648 与右分界线（658）留 10px 间距，不压线
+# 装备面板：与左侧信息列等高（158..466），容纳 鱼竿/鱼线/鱼饵/宝珠/药水
+# 五行（行高 61.6，药水行占两行文本）；右沿 648 与右分界线（658）留 10px
+# 间距，不压线
 GEAR_PANEL = (408, 158, 240, 308)
-GEAR_ROWS = 4
+GEAR_ROWS = 5
 
 # 选项按钮中心（1x）与文案（右栏宽度减半）
 OPTION_POS = [(738, 187), (738, 247), (738, 307)]
@@ -146,10 +169,11 @@ LABELS = {
     "lb_price":  (260, 295, 13, LABEL, "售价", "price"),
     "lb_lucky":  (260, 351, 13, LABEL, "幸运值", "lucky"),
     "lb_grown":  (260, 410, 13, LABEL, "可成长至", "grown_len"),
-    "lb_rod":    (422, 204, 13, LABEL, "鱼竿", "gear_rod"),
-    "lb_line":   (422, 276, 13, LABEL, "鱼线", "gear_line"),
-    "lb_bait":   (422, 348, 13, LABEL, "鱼饵", "gear_bait"),
-    "lb_orb":    (422, 420, 13, LABEL, "宝珠", "gear_orb"),
+    "lb_rod":    (422, 189, 13, LABEL, "鱼竿", "gear_rod"),
+    "lb_line":   (422, 250, 13, LABEL, "鱼线", "gear_line"),
+    "lb_bait":   (422, 312, 13, LABEL, "鱼饵", "gear_bait"),
+    "lb_orb":    (422, 374, 13, LABEL, "宝珠", "gear_orb"),
+    "lb_potion": (422, 439, 13, LABEL, "药水", "gear_potion"),
     "lb_remain": (668, 372, 13, LABEL, "今日剩余钓鱼次数", "remaining"),
 }
 
@@ -167,24 +191,31 @@ SLOTS = {
     "lucky":      {"x": 386, "y": 351, "anchor": "rm", "size": 15, "color": VALUE_COLOR},
     "grown_len":  {"x": 260, "y": 432, "anchor": "lm", "size": 15, "color": VALUE_COLOR},
     "grown_info": {"x": 260, "y": 458, "anchor": "lm", "size": 12, "color": GROWN_COLOR},
-    "gear_rod":   {"x": 468, "y": 204, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
-    "gear_line":  {"x": 468, "y": 276, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
-    "gear_bait":  {"x": 468, "y": 348, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
-    "gear_orb":   {"x": 468, "y": 420, "anchor": "lm", "size": 13, "color": ORB_COLOR},
+    "gear_rod":   {"x": 468, "y": 189, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
+    "gear_line":  {"x": 468, "y": 250, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
+    "gear_bait":  {"x": 468, "y": 312, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
+    "gear_orb":   {"x": 468, "y": 374, "anchor": "lm", "size": 13, "color": ORB_COLOR},
+    # 药水行占两行：名称(剩余数量) + 效果描述（小一号、弱色）
+    "gear_potion":      {"x": 468, "y": 430, "anchor": "lm", "size": 13, "color": VALUE_COLOR},
+    "gear_potion_desc": {"x": 468, "y": 449, "anchor": "lm", "size": 11, "color": SUB_COLOR},
     "remaining":  {"x": 680, "y": 414, "anchor": "lm", "size": 15, "color": VALUE_COLOR},
 }
 
 
-def _svg(theme: dict, air: bool = False) -> str:
+def _svg(theme: dict, air: bool = False, egg: bool = False) -> str:
     """底图 SVG：仅装饰（面板/按钮/虚线框），不含任何文字。
 
     air=True 生成空军变体：左栏不画鱼线、改画鱼左侧波浪线，右栏不画
     选项按钮（空军无从选择，渲染时在该区域贴固定文案）。
+    egg=True 生成彩蛋变体：中栏只保留稀有度面板（彩蛋无等级/售价等），
+    右栏三个选项按钮合并为一个信息块（渲染时贴折行后的发放结果），
+    左栏保留鱼线（彩蛋挂在线上）。
     """
+    shown_panels = PANELS[:1] if egg else PANELS
     panels = "\n    ".join(
         f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="12"'
         f' fill="{CREAM_SOFT}" stroke="{PANEL_LINE}" stroke-width="1.5"/>'
-        for x, y, w, h in PANELS
+        for x, y, w, h in shown_panels
     )
     buttons = "\n    ".join(
         f'<rect x="{OPTION_POS[0][0] - OPTION_W // 2}" y="{y - 25}"'
@@ -204,7 +235,19 @@ def _svg(theme: dict, air: bool = False) -> str:
         f' stroke="{LINE}" stroke-width="1.5"/>'
         for i in range(1, GEAR_ROWS)
     )
-    if air:
+    if egg:
+        # 彩蛋：右栏一块信息面板（外接三个选项按钮的区域）
+        bx, by, bw, bh = EGG_BLOCK
+        left_art = (
+            f'<line x1="122" y1="118" x2="122" y2="206"'
+            f' stroke="{DASH}" stroke-width="2"/>\n    '
+            f'<circle cx="122" cy="118" r="4" fill="{DASH}"/>'
+        )
+        right_col = (
+            f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="14"'
+            f' fill="{CREAM_SOFT}" stroke="{PANEL_LINE}" stroke-width="1.5"/>'
+        )
+    elif air:
         # 鱼已挣脱：不画鱼线，改画其左侧的波浪线（鱼游走后的水面搅动）
         left_art = "\n    ".join(
             f'<path d="M{x},{y} q{w // 4},-8 {w // 2},0 t{w // 2},0"'
@@ -292,10 +335,14 @@ def _build_bases() -> None:
     OUT_SVG.write_text(_svg(THEMES[DEFAULT_THEME]), encoding="utf-8")
     for rarity, theme in THEMES.items():
         _render(_svg(theme), IMG_DIR / f"fishing_card_{theme['key']}.png")
+        if rarity == "彩蛋":
+            continue    # 彩蛋主题只有专属底图（钓彩蛋不存在空军）
         _render(
             _svg(theme, air=True),
             IMG_DIR / f"fishing_card_{theme['key']}_air.png",
         )
+    # 彩蛋变体：仅「彩蛋」主题一份（钓到彩蛋单品专用布局）
+    _render(_svg(THEMES["彩蛋"], egg=True), IMG_DIR / "fishing_card_egg.png")
 
 
 def _write_slots() -> None:
@@ -321,7 +368,13 @@ def _write_slots() -> None:
                 "themes": {
                     rarity: {
                         "image": f"fishing_card_{theme['key']}.png",
-                        "air_image": f"fishing_card_{theme['key']}_air.png",
+                        # 彩蛋主题无空军变体，air 槽位同指专属底图
+                        "air_image": (
+                            "fishing_card_egg.png" if rarity == "彩蛋"
+                            else f"fishing_card_{theme['key']}_air.png"
+                        ),
+                        **({"egg_image": "fishing_card_egg.png"}
+                           if rarity == "彩蛋" else {}),
                         "title_color": theme["title"],
                         "tag_color": theme["tag"],
                     }
@@ -332,6 +385,11 @@ def _write_slots() -> None:
                 "air": {
                     "badge": AIR_BADGE,
                     "texts": AIR_TEXTS,
+                },
+                # 彩蛋卡片：右栏信息块的标题与折行粘贴参数（块底图上已画）
+                "egg": {
+                    "hdr": EGG_HDR,
+                    "text": EGG_TEXT,
                 },
                 "options": [
                     {"x": x, "y": y, "anchor": "mm", "text": text,
@@ -379,6 +437,12 @@ def _demo(rarity: str = "传说") -> None:
         "grown_len": "279.6cm",
         "grown_info": "40260金币 · 1幸运值",
         "remaining": "7 / 10",
+        "gear_rod": "碳素鱼竿（86/100）",
+        "gear_line": "编织鱼线（22/50）",
+        "gear_bait": "樱花鱼饵（剩余 4 个）",
+        "gear_orb": "Lv.2 能量 63/90",
+        "gear_potion": "大鱼药水(2)",
+        "gear_potion_desc": "效果待实装",
         "orb_energy": "宝珠能量 63/90",
         "orb_info": "幸运宝珠 63/90",
     }

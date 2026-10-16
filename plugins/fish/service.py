@@ -14,6 +14,11 @@ from . import fish_config as C
 from .db import FishDB
 from .fish_limit import FishLimitManager
 from .fish_config import (
+    EGG_BAIT_PACK_ID,
+    EGG_ORDER,
+    EGG_POTION_PACK_ID,
+    EGG_SWEEP_TICKET_ID,
+    EGG_WALLET_ID,
     GRADE_ORDER,
     RARITY_ORDER,
     air_force_rate,
@@ -22,6 +27,10 @@ from .fish_config import (
     bait_table,
     calc_sell_price,
     collection_rewards,
+    currency_name,
+    egg_rate,
+    egg_table,
+    egg_weights,
     grade_range,
     grade_rank,
     grade_weights,
@@ -36,6 +45,11 @@ from .fish_config import (
     orb_max_level,
     orb_upgrade_cost,
     pump_info,
+    POTION_BIGFISH_BONUS,
+    POTION_BIGFISH_ID,
+    POTION_RARITY_BONUS,
+    POTION_RARITY_ID,
+    POTION_ROLLBACK_ID,
     rarity_weights,
     rod_table,
     species_ids_by_rarity,
@@ -43,28 +57,63 @@ from .fish_config import (
 )
 
 
-def _weighted_pick(weights: dict, order: list, allow: list | None = None) -> str:
-    """按权重抽取一个 key。
+def _weighted_pick(
+    weights: dict, order: list, allow: list | None = None, bonus: float = 0.0,
+) -> str:
+    """按权重抽取一个 key：权重换算为和为 1 的概率集合，用一次
+    random() 在 [0,1) 上按累计区间落点（如 0.5/0.3/0.1/0.08/0.02 时，
+    0.55 落在稀有区间 [0.5,0.8) → 稀有；0.99 落在 [0.98,1) → 神话）。
 
-    allow 非空时只在该子集内抽取，权重按其比率归一化
-    （如 A/S/X 原为 7%/1%/0% → 归一化为 87.5%/12.5%/0%）。
+    allow 非空时只在该子集内抽取，概率按原权重比率重新归一化
+    （如 A/S/X = 7%/1%/0% → 87.5%/12.5%/0%）。
+    bonus 为药水加成：落点值 +bonus（封顶 1，即顶满必中最后档；
+    末档权重为 0 时回落最后一个正权重档）。
     """
     keys = [key for key in order if key in weights]
     if allow:
         allowed = [key for key in keys if key in allow]
         if allowed:            # 子集为空时保持全集，避免抽不出来
             keys = allowed
-    values = [max(0.0, float(weights.get(key, 0.0))) for key in keys]
     if not keys:
         return order[0]
-    if sum(values) <= 0:
-        # 权重全为 0 的自定义配置：退化为均匀抽取，避免 choices 抛错
+    values = [max(0.0, float(weights.get(key, 0.0))) for key in keys]
+    total = sum(values)
+    if total <= 0:
+        # 权重全为 0 的自定义配置：退化为均匀抽取，避免除零
         return random.choice(keys)
-    return random.choices(keys, weights=values, k=1)[0]
+    roll = min(1.0, max(0.0, random.random() + bonus))
+    acc = 0.0
+    for key, value in zip(keys, values):
+        acc += value / total
+        if roll < acc:
+            return key
+    # 浮点累计误差 / 加成顶满（roll=1.0）兜底：取最后一个正权重档位
+    for key, value in zip(reversed(keys), reversed(values)):
+        if value > 0:
+            return key
+    return keys[-1]
 
 
 class FishService:
     """钓鱼核心流程编排"""
+
+    # ===== 通用 =====
+
+    @staticmethod
+    def _charge(uid: int, currency: str, cost: int) -> bool:
+        """按货币扣费（gold/kirastone/luckygold），余额不足返回 False（不修改）"""
+        wallet = money.of(uid)
+        balance = int(getattr(wallet, currency))
+        if balance < cost:
+            return False
+        setattr(wallet, currency, balance - cost)
+        return True
+
+    @staticmethod
+    def _grant_currency(uid: int, currency: str, amount: int) -> None:
+        """按货币发放（发放路径共用；受钱包上限约束）"""
+        wallet = money.of(uid)
+        setattr(wallet, currency, int(getattr(wallet, currency)) + amount)
 
     # ===== 玩家 =====
 
@@ -108,16 +157,19 @@ class FishService:
     # ===== 钓鱼（仅单抽） =====
 
     @classmethod
-    async def do_cast(cls, uid: int) -> dict:
+    async def do_cast(cls, uid: int, force_auto: bool = False) -> dict:
         """单次钓鱼。冷却由命令层 FreqLimiter 控制。
 
         上一条钓获未处理（卖鱼/放生/放入水族箱）时不能再钓；
         钓到的鱼进入待处理区（pending），由命令层引导玩家选择。
+        force_auto=True（一键钓鱼）时无视玩家的自动处理开关强制自动
+        处理（养大不值钱的卖出、其余入箱；入箱失败回落卖出不留待处理）。
 
         Returns:
             {"ok": False, "reason": "pending"|"bait"|"rod_broken"|"line_broken", ...}
             {"ok": True, "air": True, ...鱼属性} 空军（跑掉的鱼也返回属性供展示）
             {"ok": True, "air": False, ...鱼属性/售价/幸运值, "collection": 图鉴摘要}
+            鱼类结果带 "potion_used"（本杆消耗的药水名；未消耗为 None）
         """
         player = await cls.ensure_player(uid)
 
@@ -173,42 +225,59 @@ class FishService:
                 "just_full": player["orb_energy"] >= orb_cap,
             }
 
+        # 彩蛋判定：先于稀有度抽取；命中则改抽彩蛋单品（无空军、无级别）。
+        # 幸运暴击必然走鱼类分支（暴击能量已在触发时清零，不被彩蛋吞掉）。
+        egg = None
+        if not lucky_cast and random.random() < egg_rate() / 100.0:
+            egg_id = _weighted_pick(egg_weights(), EGG_ORDER)
+            egg = {**egg_table()[egg_id], "id": egg_id}
+
         # 稀有度（鱼饵分布）→ 品种 → 级别（鱼竿分布）→ 长度（纯随机），逐级抽取。
         # 幸运暴击：稀有度限定 史诗及以上、级别限定 A 及以上，
         # 各自的概率按原比率归一化（如 A/S/X = 7%/1%/0% → 87.5%/12.5%/0%）。
-        rarity = _weighted_pick(
-            bait_rarity_weights(bait_config),
-            RARITY_ORDER,
-            lucky_rarities() if lucky_cast else None,
-        )
-        species_pool = species_ids_by_rarity(rarity)
-        if not species_pool:  # 配置断层保护：该稀有度没有品种时回落最低档
-            species_pool = species_ids_by_rarity(RARITY_ORDER[0])
-        species_id = random.choice(species_pool)
-        grade = _weighted_pick(
-            grade_weights(rod["config"]),
-            GRADE_ORDER,
-            lucky_grades() if lucky_cast else None,
-        )
+        # 药水（非彩蛋才使用）：稀有度/大鱼药水各消耗 1 个，把对应抽取
+        # 的随机落点 +加成（封顶 1）；回溯药水只在空军时消耗（见下方）
+        fish_info = None
+        potion_used = None        # 本杆消耗的药水名（列表/统计用）
+        potion_used_info = None   # 消耗详情（加成/剩余数，卡片药水行用）
+        if egg is None:
+            potion_used_info = await cls._use_cast_potion(uid, player)
+            potion_used = potion_used_info.get("name")
+            rarity = _weighted_pick(
+                bait_rarity_weights(bait_config),
+                RARITY_ORDER,
+                lucky_rarities() if lucky_cast else None,
+                bonus=potion_used_info.get("rarity", 0.0),
+            )
+            species_pool = species_ids_by_rarity(rarity)
+            if not species_pool:  # 配置断层保护：该稀有度没有品种时回落最低档
+                species_pool = species_ids_by_rarity(RARITY_ORDER[0])
+            species_id = random.choice(species_pool)
+            grade = _weighted_pick(
+                grade_weights(rod["config"]),
+                GRADE_ORDER,
+                lucky_grades() if lucky_cast else None,
+                bonus=potion_used_info.get("grade", 0.0),
+            )
 
-        species = species_table()[species_id]
-        length = cls._roll_length(species, grade)
+            species = species_table()[species_id]
+            length = cls._roll_length(species, grade)
 
-        growth_cap_len = C.growth_cap(length)
-        sell_price = calc_sell_price(species_id, length)
-        grown_price = calc_sell_price(species_id, growth_cap_len)
-        fish_info = {
-            "species_id": species_id,
-            "species_name": species["name"],
-            "rarity": rarity,
-            "grade": grade,
-            "length": length,
-            "growth_cap": growth_cap_len,
-            "sell_price": sell_price,
-            "lucky_value": lucky_value_of_price(sell_price),
-            "grown_sell_price": grown_price,
-            "grown_lucky_value": lucky_value_of_price(grown_price),
-        }
+            growth_cap_len = C.growth_cap(length)
+            sell_price = calc_sell_price(species_id, length)
+            grown_price = calc_sell_price(species_id, growth_cap_len)
+            fish_info = {
+                "species_id": species_id,
+                "species_name": species["name"],
+                "rarity": rarity,
+                "grade": grade,
+                "length": length,
+                "growth_cap": growth_cap_len,
+                "sell_price": sell_price,
+                "lucky_value": lucky_value_of_price(sell_price),
+                "grown_sell_price": grown_price,
+                "grown_lucky_value": lucky_value_of_price(grown_price),
+            }
 
         # 装备状态（供卡片展示）：鱼竿/鱼线名称与剩余耐久、鱼饵名称与剩余数量
         def _left(item: dict):
@@ -226,15 +295,63 @@ class FishService:
                 "left": ("∞" if bait_config.get("unlimited")
                          else max(0, await FishDB.get_bait_count(uid, bait_id) - 1)),
             },
+            # 药水（卡片装备区第五行）：未装备为 None。稀有度/大鱼药水
+            # 在本分支前已消耗（_use_cast_potion 同步过装备位），left 即
+            # 本次钓鱼后的剩余数；回溯药水未消耗，显示现有库存。
+            # 本杆把药水用完时保留一个 left=0 的条目——卡片据此显示
+            # 「已用完」而非「未装备」
+            "potion": None,
         }
+        potion_id = player.get("potion_id")
+        potion_cfg = C.potion_table().get(potion_id or "")
+        if potion_cfg:
+            gear_info["potion"] = {
+                "name": potion_cfg["name"],
+                "left": await FishDB.get_prop_count(uid, potion_id),
+                "desc": potion_cfg.get("desc", ""),
+            }
+        elif potion_used_info and potion_used_info.get("left", 1) <= 0:
+            gear_info["potion"] = {
+                "name": potion_used_info.get("name", ""),
+                "left": 0,
+                "desc": potion_used_info.get("desc", ""),
+            }
 
-        # 空军判定：最终空军率 = 品种基础空军率 - 总幸运值（含幸运暴击加成）
-        if random.random() < air_force_rate(species["air_force_rate"], luck_total):
+        # 彩蛋钓获：不判定空军；图鉴仅记“已钓到”标记（无次数/级别/长度，
+        # 首钓触发解锁提示）；宝珠能量 +1、装备照常磨损；单品按各自路径发放
+        if egg is not None:
+            if orb_active:
+                player["orb_energy"] = min(orb_cap, player["orb_energy"] + 1)
             await cls._wear_gear(rod)
             await cls._wear_gear(line)
             await FishDB.save_player(player)
-            return {"ok": True, "air": True, "orb": _orb_info(),
-                    "gear": gear_info, **fish_info}
+            first_caught = await FishDB.mark_egg_caught(uid, egg["id"])
+            grant = await cls._open_egg_item(uid, egg)
+            return {
+                "ok": True,
+                "air": False,
+                "egg": egg,
+                "grant": grant,
+                "collection": {"new_unlock": first_caught},
+                "orb": _orb_info(),
+                "gear": gear_info,
+            }
+
+        # 空军判定：最终空军率 = 品种基础空军率 - 总幸运值（含幸运暴击加成）。
+        # 装备回溯药水且有库存时在结果里标记 rollback（携带本次空军率），
+        # 由命令层先发空军卡片再调 rollback_cast 消耗并按原概率重判一次
+        air_rate = air_force_rate(species["air_force_rate"], luck_total)
+        if random.random() < air_rate:
+            await cls._wear_gear(rod)
+            await cls._wear_gear(line)
+            await FishDB.save_player(player)
+            result = {"ok": True, "air": True, "orb": _orb_info(),
+                      "potion_used": potion_used,
+                      "gear": gear_info, **fish_info}
+            if (player.get("potion_id") == POTION_ROLLBACK_ID
+                    and await FishDB.get_prop_count(uid, POTION_ROLLBACK_ID) >= 1):
+                result["rollback"] = {"air_rate": air_rate}
+            return result
 
         item_id = await FishDB.add_fish_item(uid, species_id, grade, length)
         collection = await FishDB.update_collection(uid, species_id, grade, length)
@@ -249,9 +366,10 @@ class FishService:
 
         # 自动处理：开启后按成长封顶售价分流——养大也不值钱的鱼
         # （可成长至的售价仍低于阈值）直接卖出；值得养的自动放入水族箱；
-        # 水族箱已满时不处理，留在待处理区交给玩家选择
+        # 水族箱已满时不处理，留在待处理区交给玩家选择。force_auto
+        # （一键钓鱼）无视开关强制处理，入箱失败回落卖出（不留待处理）
         auto_sold = auto_tank = False
-        if player["auto_sell"]:
+        if player["auto_sell"] or force_auto:
             if grown_price < C.auto_sell_threshold():
                 money.of(uid).gold += sell_price
                 await FishDB.delete_fish_item(item_id)
@@ -259,6 +377,10 @@ class FishService:
             else:
                 put = await cls.put_in_aquarium(uid)
                 auto_tank = bool(put["ok"])
+                if force_auto and not auto_tank:
+                    money.of(uid).gold += sell_price
+                    await FishDB.delete_fish_item(item_id)
+                    auto_sold, auto_tank = True, False
 
         return {
             "ok": True,
@@ -269,6 +391,7 @@ class FishService:
             "sell_price": calc_sell_price(species_id, length),
             "collection": collection,
             "orb": _orb_info(),
+            "potion_used": potion_used,
             "gear": gear_info,
             **fish_info,
         }
@@ -280,6 +403,210 @@ class FishService:
         if instance is None:
             return
         await FishDB.update_gear(instance["id"], instance["durability"] - 1)
+
+    # ===== 彩蛋单品发放 =====
+
+    @classmethod
+    async def _open_egg_item(cls, uid: int, egg: dict) -> dict:
+        """发放彩蛋单品，返回发放结果 {"mode", "text", "brief"}。
+
+        text 为卡片/文本用的完整文案；brief 为列表场景（一键钓鱼）用的
+        简短奖励摘要。前三件钓到即自动执行对应奖励发放分支，不产生可
+        储存物品：
+        - 鱼饵包：75% 樱花鱼饵×3~6，25% 梦幻鱼饵×1~3（直接入鱼饵袋）。
+        - 无人认领的钱包：金币 1000~10000，25% 额外幸运币 1~3。
+        - 药水包：1~3 瓶随机药水（逐瓶独立随机，入钓鱼背包）。
+        第四件入钓鱼背包：
+        - 钓鱼扫荡劵：存入钓鱼背包（发送 一键钓鱼/十连钓鱼 使用）。
+        """
+        egg_id = egg["id"]
+        if egg_id == EGG_BAIT_PACK_ID:
+            baits = bait_table()
+            if random.random() < 0.75:
+                bait_id, low, high = C.EGG_BAIT_PACK_COMMON_ID, 3, 6
+            else:
+                bait_id, low, high = C.EGG_BAIT_PACK_RARE_ID, 1, 3
+            bait = baits.get(bait_id)
+            if bait is None:  # 配置断层：掉落目标鱼饵条目缺失
+                return {"mode": "auto_open", "brief": "空的...",
+                        "text": f"{egg['name']}是空的..."}
+            num = random.randint(low, high)
+            await FishDB.add_bait(uid, bait_id, num)
+            return {"mode": "auto_open", "brief": f"{bait['name']}×{num}",
+                    "text": f"{egg['name']}自动打开了，获得 {bait['name']}×{num}"}
+        if egg_id == EGG_WALLET_ID:
+            wallet = money.of(uid)
+            gold = random.randint(1000, 10000)
+            wallet.gold += gold
+            parts = [f"金币×{gold}"]
+            if random.random() < 0.25:
+                lucky = random.randint(1, 3)
+                wallet.luckygold += lucky
+                parts.append(f"幸运币×{lucky}")
+            return {"mode": "auto_open", "brief": "、".join(parts),
+                    "text": f"{egg['name']}自动打开了，获得 {'、'.join(parts)}"}
+        if egg_id == EGG_POTION_PACK_ID:
+            potions = C.potion_table()
+            if not potions:  # 配置断层：药水目录为空
+                return {"mode": "auto_open", "brief": "空的...",
+                        "text": f"{egg['name']}是空的..."}
+            grants: dict[str, int] = {}
+            for _ in range(random.randint(1, 3)):
+                pid = random.choice(list(potions))
+                grants[pid] = grants.get(pid, 0) + 1
+            for pid in C.POTION_ORDER:  # 按目录顺序发放与展示
+                if pid in grants:
+                    await FishDB.add_prop(uid, pid, grants[pid])
+            names = "、".join(
+                f"{potions[pid]['name']}×{grants[pid]}"
+                for pid in C.POTION_ORDER if pid in grants
+            )
+            return {"mode": "auto_open", "brief": names,
+                    "text": f"{egg['name']}自动打开了，获得 {names}"}
+        if egg_id == EGG_SWEEP_TICKET_ID:
+            await FishDB.add_prop(uid, egg_id, 1)
+            return {"mode": "fish_bag", "brief": "钓鱼扫荡劵×1",
+                    "text": "扫荡劵已自动存入背包，发送 一键钓鱼/十连钓鱼 使用。"
+                            "会一次性消耗10次钓鱼次数，并将钓到的鱼自动处理。"}
+        return {"mode": "auto_open", "brief": "未配置发放内容",
+                "text": f"{egg['name']}自动打开了（未知彩蛋，未配置发放内容）"}
+
+    # ===== 药水（钓鱼背包道具，彩蛋「药水包」掉落） =====
+
+    @classmethod
+    async def equip_potion(cls, uid: int, potion_id: str) -> dict:
+        """装备药水（同时只能装备一种，装备另一种即替换）。"""
+        potions = C.potion_table()
+        if potion_id not in potions:
+            return {"ok": False, "reason": "not_found"}
+        count = await FishDB.get_prop_count(uid, potion_id)
+        if count < 1:
+            return {"ok": False, "reason": "not_owned",
+                    "name": potions[potion_id]["name"]}
+        player = await cls.ensure_player(uid)
+        player["potion_id"] = potion_id
+        await FishDB.save_player(player)
+        return {"ok": True, "name": potions[potion_id]["name"], "count": count}
+
+    @classmethod
+    async def consume_equipped_potion(cls, uid: int) -> dict | None:
+        """消耗一瓶装备中的药水，库存归零时自动取消装备。
+
+        供药水效果生效处调用（稀有度/大鱼药水见 _use_cast_potion，回溯
+        药水见 rollback_cast）；未装备或库存异常时返回 None 并顺带清理
+        失效的装备位。
+        """
+        player = await cls.ensure_player(uid)
+        potion_id = player.get("potion_id")
+        if not potion_id or potion_id not in C.potion_table():
+            return None
+        if not await FishDB.consume_prop(uid, potion_id, 1):
+            # 库存已空（异常数据）：取消装备并纠正
+            player["potion_id"] = None
+            await FishDB.save_player(player)
+            return None
+        left = await FishDB.get_prop_count(uid, potion_id)
+        if left <= 0:
+            player["potion_id"] = None
+            await FishDB.save_player(player)
+        return {"potion_id": potion_id, "left": left}
+
+    @classmethod
+    async def _use_cast_potion(cls, uid: int, player: dict) -> dict:
+        """非彩蛋钓获时消耗装备中的 稀有度/大鱼 药水，返回抽取加成。
+
+        成功消耗返回 {"rarity"/"grade": 加成, "name", "desc", "left"}——
+        left 为消耗后剩余数（用完那杆卡片药水行据它显示「已用完」而非
+        「未装备」）；未装备/回溯药水返回空 dict（回溯只在空军时消耗）。
+        消耗会同步本地 player 的装备位（库存归零自动卸下），避免本杆
+        稍后的 save_player 用旧副本把卸下复活。
+        """
+        potion_id = player.get("potion_id")
+        if potion_id == POTION_RARITY_ID:
+            effect = {"rarity": POTION_RARITY_BONUS}
+        elif potion_id == POTION_BIGFISH_ID:
+            effect = {"grade": POTION_BIGFISH_BONUS}
+        else:
+            return {}
+        consumed = await cls.consume_equipped_potion(uid)
+        if consumed is None or consumed["left"] <= 0:
+            player["potion_id"] = None
+        if consumed is None:
+            return {}
+        cfg = C.potion_table().get(potion_id, {})
+        return {**effect, "name": cfg.get("name", ""),
+                "desc": cfg.get("desc", ""), "left": consumed["left"]}
+
+    @classmethod
+    async def rollback_cast(cls, uid: int, air_result: dict) -> dict:
+        """回溯药水：空军后按原有空军概率重判一次（本杆仅此一次）。
+
+        消耗 1 个装备中的回溯药水；重判不中空军则把这条鱼按正常钓获
+        落地（入待处理区/图鉴/自动处理，宝珠能量 +1），不重复消耗
+        鱼饵/耐久/钓鱼次数；重判仍空军则维持空军结果。返回结果带
+        ``rollback_used=True`` 供命令层区分。
+        """
+        player = await FishDB.get_player(uid)
+        if (player is None or player.get("potion_id") != POTION_ROLLBACK_ID
+                or not air_result.get("rollback")):
+            # 装备位已失效（未装备/非回溯）：维持空军，撤下回溯标记
+            return {**air_result, "rollback": None}
+        consumed = await cls.consume_equipped_potion(uid)
+        base = {key: value for key, value in air_result.items()
+                if key != "rollback"}
+        base["rollback_used"] = True
+        if consumed is None:
+            return base            # 库存异常（do_cast 后被清空）：维持空军
+        # 回溯药水本杆实际消耗：列表场景（一键钓鱼）据此显示「使用了回溯药水」
+        base["potion_used"] = C.potion_table().get(
+            POTION_ROLLBACK_ID, {}
+        ).get("name", "回溯药水")
+        if random.random() < air_result["rollback"]["air_rate"]:
+            return base            # 重判仍空军：回溯失败
+
+        # 重判钓获：落地待处理鱼 + 图鉴；宝珠能量按钓获 +1（不重复磨损
+        # 装备——空军落地时已磨损过一次）；自动处理与正常钓获一致
+        species_id = base["species_id"]
+        item_id = await FishDB.add_fish_item(
+            uid, species_id, base["grade"], base["length"])
+        collection = await FishDB.update_collection(
+            uid, species_id, base["grade"], base["length"])
+        player = await FishDB.get_player(uid)
+        orb = dict(base.get("orb") or {})
+        if player["orb_owned"] and player["orb_equipped"]:
+            cap = orb_energy_cap(player["orb_level"])
+            player["orb_energy"] = min(cap, player["orb_energy"] + 1)
+            orb.update(energy=player["orb_energy"], cap=cap,
+                       just_full=player["orb_energy"] >= cap)
+        await FishDB.save_player(player)
+        # 药水行按消耗后状态重建：还有库存 → 剩余数；本杆用完 → left=0
+        # 条目（卡片显示「已用完」而非「未装备」）
+        gear = dict(base.get("gear") or {})
+        potion_id = player.get("potion_id")
+        potion_cfg = C.potion_table().get(potion_id or "")
+        if potion_cfg:
+            gear["potion"] = {"name": potion_cfg["name"],
+                              "left": consumed["left"],
+                              "desc": potion_cfg.get("desc", "")}
+        else:
+            rollback_cfg = C.potion_table().get(POTION_ROLLBACK_ID, {})
+            gear["potion"] = {"name": rollback_cfg.get("name", "回溯药水"),
+                              "left": 0,
+                              "desc": rollback_cfg.get("desc", "")}
+        auto_sold = auto_tank = False
+        if player["auto_sell"]:
+            grown_price = calc_sell_price(species_id, base["growth_cap"])
+            if grown_price < C.auto_sell_threshold():
+                money.of(uid).gold += base["sell_price"]
+                await FishDB.delete_fish_item(item_id)
+                auto_sold = True
+            else:
+                put = await cls.put_in_aquarium(uid)
+                auto_tank = bool(put["ok"])
+        return {**base, "air": False,
+                "item_id": None if (auto_sold or auto_tank) else item_id,
+                "auto_sold": auto_sold, "auto_tank": auto_tank,
+                "collection": collection, "orb": orb, "gear": gear}
 
     @staticmethod
     def _roll_length(species: dict, grade: str) -> float:
@@ -532,11 +859,10 @@ class FishService:
         if any(g["gear_id"] == gear_id for g in owned):
             return {"ok": False, "reason": "owned", "name": gear["name"]}
 
-        # 鱼竿/鱼线以幸运币计价
-        wallet = money.of(uid)
-        if wallet.luckygold < gear["price"]:
-            return {"ok": False, "reason": "no_luckygold", "cost": gear["price"]}
-        wallet.luckygold -= gear["price"]
+        # 计价货币按商品配置（购买与修理共用同一货币）
+        if not cls._charge(uid, gear["currency"], gear["price"]):
+            return {"ok": False, "reason": "no_currency",
+                    "currency": gear["currency"], "cost": gear["price"]}
 
         gear_item_id = await FishDB.add_gear(uid, kind, gear_id, gear["durability"])
         # 非消耗品买后自动装备
@@ -601,15 +927,13 @@ class FishService:
         if instance["durability"] >= max_durability:
             return {"ok": False, "reason": "no_need", "name": config["name"]}
 
-        # 按损耗比例计价：修得越及时越便宜
+        # 按损耗比例计价：修得越及时越便宜（修理固定金币，与购买货币无关）
         cost = int(round(
             config["repair_price"]
             * (max_durability - instance["durability"]) / max_durability
         ))
-        wallet = money.of(uid)
-        if wallet.gold < cost:
+        if not cls._charge(uid, "gold", cost):
             return {"ok": False, "reason": "no_gold", "cost": cost}
-        wallet.gold -= cost
         await FishDB.update_gear(gear_item_id, max_durability)
         return {"ok": True, "name": config["name"], "durability": max_durability,
                 "cost": cost}
@@ -624,12 +948,12 @@ class FishService:
             return {"ok": False, "reason": "bad_args"}
 
         cost = bait["price"] * num
-        wallet = money.of(uid)
-        if wallet.gold < cost:
-            return {"ok": False, "reason": "no_gold", "cost": cost}
-        wallet.gold -= cost
+        if not cls._charge(uid, bait["currency"], cost):
+            return {"ok": False, "reason": "no_currency",
+                    "currency": bait["currency"], "cost": cost}
         await FishDB.add_bait(uid, bait_id, num)
-        return {"ok": True, "name": bait["name"], "num": num, "cost": cost}
+        return {"ok": True, "name": bait["name"], "num": num, "cost": cost,
+                "currency": bait["currency"]}
 
     @classmethod
     async def equip_bait(cls, uid: int, bait_id: str) -> dict:
@@ -651,10 +975,9 @@ class FishService:
         if player["orb_owned"]:
             return {"ok": False, "reason": "owned", "name": orb["name"]}
 
-        wallet = money.of(uid)
-        if wallet.gold < orb["price"]:
-            return {"ok": False, "reason": "no_gold", "cost": orb["price"]}
-        wallet.gold -= orb["price"]
+        if not cls._charge(uid, orb["currency"], orb["price"]):
+            return {"ok": False, "reason": "no_currency",
+                    "currency": orb["currency"], "cost": orb["price"]}
 
         player["orb_owned"] = 1
         player["orb_equipped"] = 1
@@ -665,6 +988,7 @@ class FishService:
             "ok": True,
             "name": orb["name"],
             "price": orb["price"],
+            "currency": orb["currency"],
             "level": 1,
             "energy_cap": orb_energy_cap(1),
         }
@@ -706,14 +1030,14 @@ class FishService:
         if player["pump_owned"]:
             return {"ok": False, "reason": "owned", "name": pump["name"]}
 
-        wallet = money.of(uid)
-        if wallet.luckygold < pump["price"]:
-            return {"ok": False, "reason": "no_luckygold", "cost": pump["price"]}
-        wallet.luckygold -= pump["price"]
+        if not cls._charge(uid, pump["currency"], pump["price"]):
+            return {"ok": False, "reason": "no_currency",
+                    "currency": pump["currency"], "cost": pump["price"]}
 
         player["pump_owned"] = 1
         await FishDB.save_player(player)
         return {"ok": True, "name": pump["name"], "cost": pump["price"],
+                "currency": pump["currency"],
                 "growth_bonus": pump["growth_bonus"]}
 
     @classmethod
@@ -810,8 +1134,9 @@ class FishService:
             owned = any(g["gear_id"] == item["id"]
                         for g in await FishDB.list_gear(uid, rtype))
             if owned:
-                wallet.luckygold += gear["price"]
-                return f"{gear['name']}（已拥有，折算 幸运币×{gear['price']}）"
+                cls._grant_currency(uid, gear["currency"], gear["price"])
+                return (f"{gear['name']}（已拥有，折算 "
+                        f"{currency_name(gear['currency'])}×{gear['price']}）")
             await FishDB.add_gear(uid, rtype, item["id"],
                                   gear["durability"] or 1)
             return f"{gear['name']}×1"
@@ -819,8 +1144,9 @@ class FishService:
             orb = orb_info()
             player = await cls.ensure_player(uid)
             if player["orb_owned"]:
-                wallet.gold += orb["price"]
-                return f"{orb['name']}（已拥有，折算 金币×{orb['price']}）"
+                cls._grant_currency(uid, orb["currency"], orb["price"])
+                return (f"{orb['name']}（已拥有，折算 "
+                        f"{currency_name(orb['currency'])}×{orb['price']}）")
             player["orb_owned"] = 1
             player["orb_equipped"] = 1
             await FishDB.save_player(player)
@@ -829,8 +1155,9 @@ class FishService:
             pump = pump_info()
             player = await cls.ensure_player(uid)
             if player["pump_owned"]:
-                wallet.luckygold += pump["price"]
-                return f"{pump['name']}（已拥有，折算 幸运币×{pump['price']}）"
+                cls._grant_currency(uid, pump["currency"], pump["price"])
+                return (f"{pump['name']}（已拥有，折算 "
+                        f"{currency_name(pump['currency'])}×{pump['price']}）")
             player["pump_owned"] = 1
             await FishDB.save_player(player)
             return f"{pump['name']}×1"
