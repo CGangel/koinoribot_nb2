@@ -266,25 +266,35 @@ async def _send_forward_nodes_individually(
             await bot.send(event, message)
 
 
+def _forward_force_image() -> bool:
+    """合并消息始终渲染为图片（配置面板「其他配置」，热更新即时生效）"""
+    from .config_store import config
+
+    return bool(config.forward_as_image)
+
+
 async def send_group_forward_msg(
-    event: Event, 
-    bot: Bot, 
+    event: Event,
+    bot: Bot,
     messages,
     width: int = 600,
 ) -> None:
     """
     发送合并转发消息
-    
+
     Args:
         event: 事件对象
         bot: Bot 对象
         messages: 合并转发消息节点列表（onebot.Message 或 List[MessageSegment]）
         width: 转为长图时的画布宽度（默认 600；双列排版可放宽）
-    
+
     Note:
-        QQ-Bot 不支持合并转发，会降级为普通消息依次发送
+        QQ-Bot 不支持合并转发，会降级为图片或普通消息依次发送；
+        配置 forward_as_image 开启时，OneBot 群聊也不发真实合并转发，
+        一律渲染为图片（渲染失败回落真实合并转发）
     """
-    if isinstance(event, onebot.GroupMessageEvent):
+    is_onebot_group = isinstance(event, onebot.GroupMessageEvent)
+    if is_onebot_group and not _forward_force_image():
         await bot.send_group_forward_msg(group_id=event.group_id, messages=messages)
         return
 
@@ -292,10 +302,14 @@ async def send_group_forward_msg(
     try:
         image_bytes = await _nodes_to_image(compatible_nodes, width=width)
         if image_bytes:
-            await bot.send(event, qq.MessageSegment.file_image(image_bytes))
+            await bot.send(event, build_image_msg(event, image_bytes))
             return
     except Exception as error:
         logger.error(f"合并转发转图片失败: {error}")
+    if is_onebot_group:
+        # 强制图片模式下渲染失败：回落真实合并转发
+        await bot.send_group_forward_msg(group_id=event.group_id, messages=messages)
+        return
     await _send_forward_nodes_individually(event, bot, compatible_nodes)
 
 

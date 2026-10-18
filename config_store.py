@@ -188,6 +188,15 @@ _FISH_POTION_ITEMS_DEFAULT: dict = {
                         "desc": "空军时回溯一次时空"},
 }
 
+# 钓鱼商店·道具商品表（键为道具 id，与钓鱼背包 fish_props 同一命名空间，
+# 如彩蛋「钓鱼扫荡劵」的 egg_sweep_ticket）：条目与名称固定不可增删改，
+# 只能改各属性与价格。
+_FISH_SHOP_ITEMS_DEFAULT: dict = {
+    "egg_sweep_ticket": {"name": "钓鱼扫荡劵", "price": 10000,
+                         "currency": "gold",
+                         "desc": "一键钓鱼的入场券，一次性消耗10次钓鱼次数"},
+}
+
 # 图鉴奖励目录：键 "稀有度:级别档"（每个稀有度 6 档 D/C/B/A/S/X，共 30 档，
 # 档位键固定不可增删改），值为 {"奖励": {奖励键: 数量}}——外层「奖励」包裹
 # 使面板二级子页以嵌套键值块渲染，可自由增删改单项与配置多项奖励：
@@ -244,6 +253,7 @@ _FIXED_ENTRY_FIELDS: dict[str, dict] = {
     "fish_shop_rods": _FISH_RODS_DEFAULT,
     "fish_shop_lines": _FISH_LINES_DEFAULT,
     "fish_shop_baits": _FISH_BAITS_DEFAULT,
+    "fish_shop_items": _FISH_SHOP_ITEMS_DEFAULT,
     "fish_egg_items": _FISH_EGG_ITEMS_DEFAULT,
     "fish_potion_items": _FISH_POTION_ITEMS_DEFAULT,
     "fish_rarity_weights": _FISH_RARITY_WEIGHTS_DEFAULT,
@@ -256,7 +266,7 @@ _FIXED_ENTRY_FIELDS: dict[str, dict] = {
 # 幸运宝珠为唯一单件装备（存 owned 标记而非条目 id），改名不影响已有数据，故不锁定
 _SHOP_NAME_LOCKED_FIELDS = (
     "fish_shop_rods", "fish_shop_lines", "fish_shop_baits",
-    "fish_egg_items", "fish_potion_items",
+    "fish_shop_items", "fish_egg_items", "fish_potion_items",
 )
 
 # 商店条目内嵌权重块的固定键集：鱼竿级别概率（D/C/B/A/S/X）与鱼饵
@@ -288,7 +298,8 @@ _FISH_REWARD_RESERVED_CHOICES: list[tuple[str, str]] = [
 # 计价货币下拉：条目内 currency 属性（商店表/彩蛋目录）与标量字段
 # （幸运宝珠/氧气泵）共用同一组选项
 _SHOP_CURRENCY_ATTR_FIELDS = (
-    "fish_shop_rods", "fish_shop_lines", "fish_shop_baits", "fish_egg_items",
+    "fish_shop_rods", "fish_shop_lines", "fish_shop_baits",
+    "fish_shop_items", "fish_egg_items",
 )
 _SCALAR_CURRENCY_FIELDS = ("fish_orb_currency", "fish_pump_currency")
 
@@ -360,6 +371,9 @@ class KoinoribotConfig(BaseModel):
     # 鱼饵商品表 {id: {name, price, desc, unlimited, effect}}，unlimited 为
     # true 表示无限使用；其余为一次性用品
     fish_shop_baits: dict = _FISH_BAITS_DEFAULT
+    # 道具商品表 {id: {name, price, currency, desc}}（钓鱼商店·道具栏，
+    # 键为道具 id，与钓鱼背包 fish_props 同一命名空间）
+    fish_shop_items: dict = _FISH_SHOP_ITEMS_DEFAULT
     # 幸运宝珠（唯一单件装备：只能购买一次，购买后自动装备、无耐久、不可卸下）
     fish_orb_name: str = "幸运宝珠"
     fish_orb_price: int = 100000
@@ -410,7 +424,7 @@ class KoinoribotConfig(BaseModel):
     fish_collection_rewards: dict = _FISH_COLLECTION_REWARDS_DEFAULT
     # 彩蛋概率（百分点）：每次钓鱼先判定是否命中彩蛋，命中改抽彩蛋单品
     # （不判定空军）；幸运暴击必然走鱼类分支
-    fish_egg_rate: float = 5
+    fish_egg_rate: float = 10
     # 彩蛋单品目录 {id: {name, weight, desc, art}}，5 件固定
     # 不可增删改；weight 为单品抽取权重（各自可调）
     fish_egg_items: dict = _FISH_EGG_ITEMS_DEFAULT
@@ -457,6 +471,9 @@ class KoinoribotConfig(BaseModel):
     # 周期缓存清理间隔（秒）：周期 malloc_trim 把 glibc 囤住的空闲页还给
     # 系统，缓解高流量后 RSS 棘轮上涨；0 = 关闭
     cache_clean_interval: int = 0
+    # 合并消息始终渲染为图片：true 时无论平台（含 OneBot 群聊）都不发送
+    # 真实合并转发，一律渲染为图片发送（渲染失败自动回落合并转发）
+    forward_as_image: bool = False
 
     # 公网白名单模式
     public_bot: bool = False                 # 是否启用云bot模式
@@ -490,6 +507,7 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
     ],
     "钓鱼·商店": [
         "fish_shop_rods", "fish_shop_lines", "fish_shop_baits",
+        "fish_shop_items",
     ],
     "钓鱼·彩蛋": [
         "fish_egg_rate", "fish_egg_items",
@@ -524,7 +542,8 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "daily_limit", "ai_draw_enable", "ai_draw_size", "shaojo_image_size",
         "aidraw_quality", "aidraw_high_quality", "enable_gold_aidraw",
     ],
-    "其他配置": ["blackusers", "global_msg_cd", "cache_clean_interval"],
+    "其他配置": ["blackusers", "global_msg_cd", "cache_clean_interval",
+                "forward_as_image"],
     "公网白名单模式": ["public_bot", "permit_bot", "ip_address"],
 }
 
@@ -554,6 +573,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "fish_shop_rods": "鱼竿商品表：{id: {name, price, currency, desc, durability, repair_price, grade_weights}}；grade_weights 为级别概率 {D/C/B/A/S/X}（只影响级别，级别越高鱼越长）；currency 为购买计价货币（gold 金币/kirastone 宝石/luckygold 幸运币；修理固定金币）；durability 填 null 表示无耐久（如初始鱼竿）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_shop_lines": "鱼线商品表：{id: {name, price, currency, desc, durability, repair_price, luck}}；luck 为幸运值（百分点），用于抵消品种基础空军率，只影响空军概率；currency 为购买计价货币（gold 金币/kirastone 宝石/luckygold 幸运币；修理固定金币）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_shop_baits": "鱼饵商品表：{id: {name, price, currency, desc, unlimited, rarity_weights}}；rarity_weights 为稀有度概率 {普通/稀有/史诗/传说/神话}（只影响稀有度）；currency 为计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）；unlimited 填 true 表示无限使用（初始鱼饵）；其余为一次性用品，每次钓鱼消耗 1 个；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_items": "道具商品表：{id: {name, price, currency, desc}}（钓鱼商店·道具栏）；键为道具 id（如钓鱼扫荡劵），购买后存入钓鱼背包；currency 为计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_grade_ranges": "各级别的长度区间系数 {级别: [lo, hi]}：长度 = 基准长度 × 区间随机（D 从 ×1.0 起，各级首尾相接；修改会影响所有鱼的取长）；键为固定 6 级 D/C/B/A/S/X，不可增删改",
     "fish_sell_price_exponent": "售价指数：售价 = 基准售价 × 指数^(出售时长度 / 基准长度)；越大则养大后越值钱",
     "fish_lucky_tiers": "放生幸运币分档：[[售价下限, 幸运币], ...]；售价低于首档下限的鱼不可放生（默认 1万→1、5万→2、10万→5、100万→10）",
@@ -616,6 +636,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "blackusers": "黑名单用户（统一 UID 列表）",
     "global_msg_cd": "全局限频：同一用户两条消息的最小间隔（秒），间隔内的消息静默忽略；SU 豁免；0 = 关闭",
     "cache_clean_interval": "缓存清理周期（单位为秒），可优化内存占用，为0时关闭",
+    "forward_as_image": "合并消息始终渲染为图片：开启后无论是否官Bot，合并消息（帮助/商店/图鉴等长文本）都不发送合并转发，一律渲染为图片发送（渲染失败自动回落合并转发）",
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
     "permit_bot": "豁免名单（云 bot 模式必填）：本名单内的bot将跳过白名单检查；QQ 号/官Bot appid 精确匹配，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",
@@ -950,6 +971,7 @@ def _migrate_shop_currency() -> None:
         "fish_shop_rods": "luckygold",
         "fish_shop_lines": "luckygold",
         "fish_shop_baits": "gold",
+        "fish_shop_items": "gold",
     }
     for field, currency in defaults.items():
         table = getattr(config, field, None)

@@ -28,6 +28,7 @@ from .fish_config import (
     EGG_SWEEP_TICKET_ID,
     bait_table,
     calc_sell_price,
+    item_table,
     line_table,
     rod_table,
     species_table,
@@ -309,6 +310,18 @@ def _bait_block(item: dict, bait_id: str, count: int, using: bool,
     return blocks
 
 
+def _item_block(item: dict, count: int, index: int) -> list[str]:
+    """道具的详情行（消耗品；计价货币见商品配置）"""
+    blocks = [f"{index}.{item['name']}"]
+    if item.get("desc"):
+        blocks.append(f"  属性：{item['desc']}")
+    blocks.append(f"  库存：×{count}")
+    blocks.append(
+        f"  售价：{item['price']} {C.currency_name(item.get('currency'))}/个"
+    )
+    return blocks
+
+
 def _orb_block(orb: dict, owned: bool) -> list[str]:
     """幸运宝珠的详情行（限购一次；计价货币可配置）"""
     price = "已购买" if owned else (
@@ -365,6 +378,7 @@ HELP_TEXT = """【钓鱼玩法】
 
 ==钓鱼商店==
   买鱼竿/买鱼线/买鱼饵 <名称> —— 购买对应的物品
+  买道具 <名称> —— 购买钓鱼扫荡劵等道具（一键钓鱼的入场券）
   买幸运宝珠 —— 购买并装备幸运宝珠
   买氧气泵 —— 水族箱成长速率 +100%
   升级幸运宝珠 —— 消耗幸运币升级宝珠
@@ -651,7 +665,8 @@ async def handle_sweep(
     # 扫荡劵：十连的入场券（钓到彩蛋「钓鱼扫荡劵」获得）
     if await FishDB.get_prop_count(uid, EGG_SWEEP_TICKET_ID) < 1:
         await sweep_cmd.finish(
-            "没有钓鱼扫荡劵~钓鱼时有几率从彩蛋钓到（发送 我的背包 查看）"
+            "没有钓鱼扫荡劵~钓鱼时有几率从彩蛋钓到，也可在钓鱼商店购买"
+            "（发送 我的背包 查看库存）"
         )
     # 待处理鱼获会卡住后续杆（一键不经过待处理区，先清掉）
     pending = await FishDB.get_pending_item(uid)
@@ -1569,13 +1584,18 @@ async def handle_shop(
     right += ["", "==水族箱=="] + _pump_block(
         C.pump_info(), player["pump_owned"]
     )
+    right += ["", "==道具=="] + pack([
+        _item_block(item, await FishDB.get_prop_count(uid, item_id), idx)
+        for idx, (item_id, item) in enumerate(item_table().items(), start=1)
+    ])
 
     # 制表符分列：渲染器把右列固定画在画布中线
     height = max(len(left), len(right))
     left += [""] * (height - len(left))
     right += [""] * (height - len(right))
     lines = [
-        "买鱼竿/买鱼线/买鱼饵/买幸运宝珠/买氧气泵 <名称>（计价货币见各商品售价）",
+        "买鱼竿/买鱼线/买鱼饵/买幸运宝珠/买氧气泵/买道具 <名称>"
+        "（计价货币见各商品售价）",
         "换鱼竿/换鱼线/装备鱼饵 <名称> 、升级幸运宝珠",
         "",
     ]
@@ -1681,12 +1701,13 @@ async def _gear_list_text(uid: int, two_column: bool = False) -> str:
     if not shown_potion:
         potion_lines.append("（空）")
 
-    # ==道具==（钓鱼背包中非药水的道具，如钓鱼扫荡劵）
+    # ==道具==（钓鱼背包中非药水的道具，如钓鱼扫荡劵；消耗到 0 的行
+    # 仍留在表里，这里不显示）
     egg_names = {k: v["name"] for k, v in C.egg_table().items()}
     prop_lines = ["==道具=="]
     shown_prop = False
     for pid, count in props.items():
-        if pid in potions:
+        if pid in potions or count <= 0:
             continue
         prop_lines.append(f"{egg_names.get(pid, pid)} ×{count}")
         shown_prop = True
@@ -1907,6 +1928,43 @@ async def handle_buy_bait(
         await buy_bait_cmd.finish("购买失败...")
 
     await buy_bait_cmd.finish(
+        f"购买了{result['name']} ×{result['num']}"
+        f"（{C.currency_name(result['currency'])}-{result['cost']}）"
+    )
+
+
+# ===== 道具（钓鱼商店·道具栏；消耗品入库钓鱼背包） =====
+buy_item_cmd = on_command("买道具", aliases={"购买道具"}, priority=5, block=True)
+
+
+@buy_item_cmd.handle()
+async def handle_buy_item(
+    args: Message = CommandArg(),
+    uid: int = Depends(get_uid),
+) -> None:
+    parts = args.extract_plain_text().split()
+    if not parts:
+        await buy_item_cmd.finish(
+            "用法: 买道具/购买道具 <名称> [数量]（见 钓鱼商店）"
+        )
+
+    item_id, _ = _find_by_name(item_table(), parts[0])
+    if item_id is None:
+        await buy_item_cmd.finish("没有这种道具，发送 钓鱼商店 查看列表")
+    num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+
+    result = await FishService.buy_item(uid, item_id, num)
+    if not result["ok"]:
+        if result["reason"] == "bad_args" and result.get("sub") == "num":
+            await buy_item_cmd.finish("数量必须大于0")
+        if result["reason"] == "no_currency":
+            await buy_item_cmd.finish(
+                f"购买失败，{C.currency_name(result['currency'])}不足喔..."
+                f"（需要 {result['cost']} {C.currency_name(result['currency'])}）"
+            )
+        await buy_item_cmd.finish("购买失败...")
+
+    await buy_item_cmd.finish(
         f"购买了{result['name']} ×{result['num']}"
         f"（{C.currency_name(result['currency'])}-{result['cost']}）"
     )

@@ -35,6 +35,7 @@ from .fish_config import (
     grade_rank,
     grade_weights,
     growth_rate_multiplier,
+    item_table,
     line_table,
     lucky_grades,
     lucky_rarities,
@@ -954,6 +955,24 @@ class FishService:
         await FishDB.add_bait(uid, bait_id, num)
         return {"ok": True, "name": bait["name"], "num": num, "cost": cost,
                 "currency": bait["currency"]}
+
+    @classmethod
+    async def buy_item(cls, uid: int, item_id: str, num: int) -> dict:
+        """购买道具（钓鱼商店·道具栏；入库钓鱼背包 fish_props）"""
+        items = item_table()
+        item = items.get(item_id)
+        if num <= 0:
+            return {"ok": False, "reason": "bad_args", "sub": "num"}
+        if item is None:
+            return {"ok": False, "reason": "not_found"}
+
+        cost = item["price"] * num
+        if not cls._charge(uid, item["currency"], cost):
+            return {"ok": False, "reason": "no_currency",
+                    "currency": item["currency"], "cost": cost}
+        await FishDB.add_prop(uid, item_id, num)
+        return {"ok": True, "name": item["name"], "num": num, "cost": cost,
+                "currency": item["currency"]}
 
     @classmethod
     async def equip_bait(cls, uid: int, bait_id: str) -> dict:

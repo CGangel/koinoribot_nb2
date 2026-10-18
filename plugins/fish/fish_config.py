@@ -27,12 +27,15 @@
 TODO(balance): 具体数值待玩法设计定稿。
 """
 
+import copy
+
 from ...config_store import config
 from ...config_store import (
     FISH_CURRENCIES,
     _FISH_COLLECTION_REWARDS_DEFAULT,
     _FISH_EGG_ITEMS_DEFAULT,
     _FISH_POTION_ITEMS_DEFAULT,
+    _FISH_SHOP_ITEMS_DEFAULT,
     norm_bool,
 )
 
@@ -399,6 +402,29 @@ def bait_table() -> dict[str, dict]:
     })
 
 
+def _norm_shop_item(entry) -> dict | None:
+    """规范化道具商品条目（钓鱼商店·道具栏；无附加行为字段）"""
+    if not isinstance(entry, dict) or not str(entry.get("name", "")).strip():
+        return None
+    try:
+        price = max(0, int(entry.get("price", 0)))
+    except (TypeError, ValueError):
+        return None
+    return {
+        "name": str(entry["name"]),
+        "price": price,
+        "currency": _norm_currency(entry.get("currency"), "gold"),
+        "desc": str(entry.get("desc", "") or ""),
+    }
+
+
+def item_table() -> dict[str, dict]:
+    """道具商品表（键为道具 id，购买后存钓鱼背包 fish_props）；
+    条目缺失时按内置默认补回"""
+    return _table(config.fish_shop_items, _norm_shop_item,
+                  copy.deepcopy(_FISH_SHOP_ITEMS_DEFAULT))
+
+
 # ================== 彩蛋（独立于稀有度的特殊钓获栏） ==================
 # 每次钓鱼先按彩蛋概率（fish_egg_rate，百分点）判定是否命中彩蛋；命中则
 # 按各单品 weight 权重抽取一件（彩蛋钓获不判定空军），未命中按原稀有度
@@ -424,7 +450,7 @@ def egg_rate() -> float:
     try:
         return min(100.0, max(0.0, float(config.fish_egg_rate)))
     except (TypeError, ValueError):
-        return 5.0
+        return 10.0
 
 
 def _norm_egg(entry) -> dict | None:
