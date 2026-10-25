@@ -994,10 +994,10 @@ PRIZE_CONFIG = {
 TIERS = list(PRIZE_CONFIG.keys())
 WEIGHTS = [details['weight'] for details in PRIZE_CONFIG.values()]
 
-# 基础奖品配置
+# 基础奖品配置（星星产出为原先的 5%）
 PRIZES = {
     "gold": {"amount": 100, "chinese": "金币"},
-    "starstone": {"amount": 100, "chinese": "星星"},
+    "starstone": {"amount": 5, "chinese": "星星"},
     "luckygold": {"amount": 0.05, "chinese": "幸运币"},
 }
 

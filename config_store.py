@@ -354,8 +354,8 @@ class KoinoribotConfig(BaseModel):
     comment_cool_time: int = 5              # 评论漂流瓶冷却时长
     bottle_price: int = 100                 # 漂流瓶的价格（金币）
     comment_price: int = 50                 # 评论漂流瓶需要的金币
-    bottle_craft_starstone: int = 10000     # 合成 1 个漂流瓶需要的星星
-    bottle_salvage_starstone: int = 1000    # 捞 1 次漂流瓶需要的星星
+    bottle_craft_gold: int = 10000          # 合成 1 个漂流瓶需要的金币
+    bottle_salvage_gold: int = 1000         # 捞 1 次漂流瓶需要的金币
 
     # ================== 新版钓鱼（fish） ==================
     # 稀有度基准权重（键为稀有度名，固定不可增删）；仅当某鱼饵未配置 rarity_weights 时回落使用
@@ -442,7 +442,7 @@ class KoinoribotConfig(BaseModel):
     return_item_fee: float = 0.5            # 退还宠物用品手续费比率
     init_gold: int = 3000                   # 新用户初始金币
     init_luckygold: int = 1                 # 新用户初始幸运币
-    init_starstone: int = 12500             # 新用户初始星星
+    init_starstone: int = 100               # 新用户初始星星
     init_kirastone: int = 5                 # 新用户初始宝石（羽毛石）
 
     # ================== 股票配置 ==================
@@ -490,8 +490,8 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
     "官Bot AppID": ["qqbot_appid", "qqbot_openid_api"],
     "漂流瓶": [
         "throw_cool_time", "salvage_cool_time", "comment_cool_time",
-        "bottle_price", "comment_price", "bottle_craft_starstone",
-        "bottle_salvage_starstone",
+        "bottle_price", "comment_price", "bottle_craft_gold",
+        "bottle_salvage_gold",
     ],
     "钓鱼·基础": [
         "fish_cast_cd", "fish_limit_count",
@@ -565,8 +565,8 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "comment_cool_time": "评论漂流瓶冷却时长（秒）",
     "bottle_price": "购买漂流瓶的价格（金币）",
     "comment_price": "评论漂流瓶需要的金币",
-    "bottle_craft_starstone": "合成 1 个漂流瓶需要的星星",
-    "bottle_salvage_starstone": "捞 1 次漂流瓶需要的星星",
+    "bottle_craft_gold": "合成 1 个漂流瓶需要的金币",
+    "bottle_salvage_gold": "捞 1 次漂流瓶需要的金币",
     # 新版钓鱼
     "fish_rarity_weights": "稀有度基准权重（键为固定 5 档稀有度名：普通/稀有/史诗/传说/神话，不可增删改）；仅当某鱼饵未配置 rarity_weights 时回落使用",
     "fish_species": "鱼品种表：{品种id: {name, rarity, base_price, base_length_cm, air_force_rate, art}}；base_length_cm 为基准长度（D 级最小长度，决定各级长度区间），base_price 为基准售价，air_force_rate 为基础空军概率（最终空军率 = 基础空军率 - 总幸运值，下限 0）；可在此新增/删除品种",
@@ -937,8 +937,13 @@ def _migrate_legacy_file(path: Path) -> list[int]:
     return [int(uid) for uid in superusers]
 
 
-# 字段改名映射：旧键的值在 stale 清理前迁入新键（避免被当废弃行删除）
-_KEY_RENAMES: dict[str, str] = {"qqbot_reply_quote": "reply_quote"}
+# 字段改名映射：旧键的值在 stale 清理前迁入新键（避免被当废弃行删除）。
+# 漂流瓶合成/捞取已由星星改为金币计价，旧星星价格的键值原样迁入新键
+_KEY_RENAMES: dict[str, str] = {
+    "qqbot_reply_quote": "reply_quote",
+    "bottle_craft_starstone": "bottle_craft_gold",
+    "bottle_salvage_starstone": "bottle_salvage_gold",
+}
 
 
 def _migrate_fish_collection_rewards() -> None:

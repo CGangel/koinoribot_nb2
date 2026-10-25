@@ -197,12 +197,12 @@ def _special_day_messages(flag: str, login_flag: int):
         birth_flag = 1
         birthday_msg = f'{member_list[birth_list.index(flag)]}的生日'
         if not login_flag:
-            extra_msg += '☆ 星星+2400(生日)\n☆ 金币+5000(生日)\n'
+            extra_msg += '☆ 星星+120(生日)\n☆ 金币+5000(生日)\n'
     if flag in event_list:
         event_flag = 1
         festival_msg = event_name_list[event_list.index(flag)]
         if not login_flag:
-            extra_msg += '☆ 星星+1600(节日)\n☆ 金币+3600(节日)\n'
+            extra_msg += '☆ 星星+80(节日)\n☆ 金币+3600(节日)\n'
     return festival_msg, birthday_msg, extra_msg, birth_flag, event_flag
 
 
@@ -254,10 +254,8 @@ def _build_login_card_state(uid: int, wallet, current_time) -> LoginCardState:
 
     gold = 100 + rp
     logindays = wallet.logindays
-    star_add = min(
-        random.randint(100 + logindays // 5 * 25, 200 + logindays // 5 * 50),
-        5000,
-    )
+    # 星星产出在 10% 基础上再减半（基础/生日/节日为原先的 5%）；累签星星固定为 rp × 1
+    star_add = rp
     gold_add = min(
         random.randint(50 + logindays // 2 * 5, 100 + logindays * 5),
         2500,
@@ -265,7 +263,7 @@ def _build_login_card_state(uid: int, wallet, current_time) -> LoginCardState:
     date_msg = f'{months}月{days}日星期{week_list[week]}   已签到{logindays}天'
     total_get_msg = ''
     if not login_flag:
-        star_reward = rp * 5 + birth_flag * 2400 + event_flag * 1600 + star_add
+        star_reward = rp * 5 // 20 + birth_flag * 120 + event_flag * 80 + star_add
         gold += birth_flag * 5000 + event_flag * 3600 + gold_add
         wallet.starstone += star_reward
         wallet.gold += gold

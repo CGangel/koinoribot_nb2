@@ -1,7 +1,7 @@
 """漂流瓶（drift_bottle）业务逻辑层。
 
 BottleService 面向命令层返回纯数据 dict，消息文案在 __init__ 里拼装。
-与钓鱼玩法完全解耦：获取途径为 金币购买 与 星星合成，捞取消耗星星
+与钓鱼玩法完全解耦：购买/合成/捞取均消耗金币（原星星计价渠道已移除）
 （旧版的水之心体系随旧版钓鱼移除）。冷却时长与价格均可热更新配置。
 """
 
@@ -41,14 +41,14 @@ class BottleService:
 
     @staticmethod
     async def craft_bottles(uid: int, num: int) -> dict:
-        """花星星合成漂流瓶（与钓鱼解耦后的合成途径）"""
+        """花金币合成漂流瓶（与钓鱼解耦后的合成途径）"""
         if num <= 0:
             return {"ok": False, "reason": "bad_num"}
-        cost = num * config.bottle_craft_starstone
+        cost = num * config.bottle_craft_gold
         wallet = money.of(uid)
-        if wallet.starstone < cost:
-            return {"ok": False, "reason": "no_starstone", "cost": cost}
-        wallet.starstone -= cost
+        if wallet.gold < cost:
+            return {"ok": False, "reason": "no_gold", "cost": cost}
+        wallet.gold -= cost
         await BottleDB.add_inventory(uid, num)
         owned = await BottleDB.get_inventory(uid)
         return {"ok": True, "num": num, "cost": cost, "owned": owned}
@@ -72,20 +72,20 @@ class BottleService:
 
     @staticmethod
     async def pick_bottle(uid: int) -> dict:
-        """随机捞取一个漂流瓶（消耗星星；池子不足或星星不足时拒绝）"""
+        """随机捞取一个漂流瓶（消耗金币；池子不足或金币不足时拒绝）"""
         amount = await BottleDB.get_bottle_amount()
         if amount < MIN_PICK_POOL:
             return {"ok": False, "reason": "pool_empty", "amount": amount,
                     "min": MIN_PICK_POOL}
-        cost = config.bottle_salvage_starstone
+        cost = config.bottle_salvage_gold
         wallet = money.of(uid)
-        if wallet.starstone < cost:
-            return {"ok": False, "reason": "no_starstone", "cost": cost}
+        if wallet.gold < cost:
+            return {"ok": False, "reason": "no_gold", "cost": cost}
         bottle_id, bottle = await BottleDB.pick_random_bottle()
         if bottle_id is None:
             return {"ok": False, "reason": "pool_empty", "amount": amount,
                     "min": MIN_PICK_POOL}
-        wallet.starstone -= cost
+        wallet.gold -= cost
         return {"ok": True, "bottle_id": bottle_id, "bottle": bottle,
                 "cost": cost}
 

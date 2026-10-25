@@ -52,3 +52,6 @@ src/fonts/*.woff2
 # Local activation-code generator
 plugins/yxzm2_keygen/
 plugins/render_probe/
+
+# 一次性运维脚本：仅本地保留，禁止进入代码仓库
+/scripts/

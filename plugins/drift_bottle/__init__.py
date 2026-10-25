@@ -1,8 +1,8 @@
 """漂流瓶插件 - drift_bottle
 
 自旧版钓鱼插件完整迁出、与钓鱼玩法解耦：
-- 获取：买漂流瓶（金币） / 合成漂流瓶（星星，价格可配置，默认 10000）
-- 扔漂流瓶（内容 ≤60 字）、捡漂流瓶（随机，消耗星星，默认 1000；
+- 获取：买漂流瓶（金币） / 合成漂流瓶（金币，价格可配置，默认 10000）
+- 扔漂流瓶（内容 ≤60 字）、捡漂流瓶（随机，消耗金币，默认 1000；
   池中至少 5 个，合并转发展示正文与评论）、评论漂流瓶（金币）、
   漂流瓶数量
 - 管理（仅 SU）：捡指定漂流瓶 / 删除漂流瓶
@@ -54,10 +54,10 @@ def _build_help_text() -> str:
     return f"""【漂流瓶】
 漂流瓶帮助 —— 本帮助
 买漂流瓶 [数量] —— 花金币购买（{config.bottle_price}金币/个，一次最多10个）
-合成漂流瓶 [数量] —— 花星星合成（{config.bottle_craft_starstone}星星/个）
+合成漂流瓶 [数量] —— 花金币合成（{config.bottle_craft_gold}金币/个）
 我的漂流瓶 —— 查看持有数
 扔漂流瓶 内容 —— 把漂流瓶放入水中（最多60字）
-捡漂流瓶 —— 随机捞一个漂流瓶（{config.bottle_salvage_starstone}星星/次，水中至少要有5个）
+捡漂流瓶 —— 随机捞一个漂流瓶（{config.bottle_salvage_gold}金币/次，水中至少要有5个）
 漂流瓶数量 —— 查看水中共有多少漂流瓶
 评论漂流瓶 漂流瓶ID 内容 —— 回复他人的漂流瓶（{config.comment_price}金币，最多20字）
 ----------
@@ -111,14 +111,14 @@ async def handle_compound_bottle(
     if not result["ok"]:
         if result["reason"] == "bad_num":
             await compound_bottle_cmd.finish("数量必须大于0")
-        if result["reason"] == "no_starstone":
+        if result["reason"] == "no_gold":
             await compound_bottle_cmd.finish(
-                f"星星不足喔...（合成{num}个需要 {result['cost']} 星星）"
+                f"金币不足喔...（合成{num}个需要 {result['cost']} 金币）"
             )
         await compound_bottle_cmd.finish("合成失败...")
 
     await compound_bottle_cmd.finish(
-        f"{result['cost']}颗星星凝聚成了{result['num']}个漂流瓶！"
+        f"花{result['cost']}金币凝聚出了{result['num']}个漂流瓶！"
         f"\n当前持有 {result['owned']} 个"
     )
 
@@ -192,9 +192,9 @@ async def handle_pick_bottle(
             await pick_bottle_cmd.finish(
                 f"漂流瓶太少了（{result['amount']}/{result['min']}个）"
             )
-        if result["reason"] == "no_starstone":
+        if result["reason"] == "no_gold":
             await pick_bottle_cmd.finish(
-                f"星星不足喔...（捞一次需要 {result['cost']} 星星）"
+                f"金币不足喔...（捞一次需要 {result['cost']} 金币）"
             )
         await pick_bottle_cmd.finish("没有可捞取的漂流瓶")
 
