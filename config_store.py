@@ -937,8 +937,7 @@ def _migrate_legacy_file(path: Path) -> list[int]:
     return [int(uid) for uid in superusers]
 
 
-# 字段改名映射：旧键的值在 stale 清理前迁入新键（避免被当废弃行删除）。
-# 漂流瓶合成/捞取已由星星改为金币计价，旧星星价格的键值原样迁入新键
+# 字段改名映射：旧键的值在 stale 清理前迁入新键（避免被当废弃行删除）
 _KEY_RENAMES: dict[str, str] = {
     "qqbot_reply_quote": "reply_quote",
     "bottle_craft_starstone": "bottle_craft_gold",

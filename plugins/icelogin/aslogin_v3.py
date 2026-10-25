@@ -254,8 +254,7 @@ def _build_login_card_state(uid: int, wallet, current_time) -> LoginCardState:
 
     gold = 100 + rp
     logindays = wallet.logindays
-    # 星星产出在 10% 基础上再减半（基础/生日/节日为原先的 5%）；累签星星固定为 rp × 1
-    star_add = rp
+    star_add = min(logindays, 100)
     gold_add = min(
         random.randint(50 + logindays // 2 * 5, 100 + logindays * 5),
         2500,

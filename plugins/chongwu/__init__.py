@@ -768,7 +768,7 @@ async def _apply_pet_skill(skill_name: str, pet: dict, uid: int) -> str:
         money.luckygold += amount
         return f"\n{pet_name}外出玩耍时偶遇音祈，由于可爱的外表，深受对方喜爱，获得了上帝的祝福。幸运币+{amount}。"
     if skill_name == "卖萌":
-        amount = random.randint(5, 100)
+        amount = random.randint(2, 50)
         money.starstone += amount
         return f"\n{pet_name}外出玩耍时偶遇梦灵，由于太可爱了，被大小姐rua了个爽，并收获了大量好感度（星星+{amount}）。"
     if skill_name == "美食家":
