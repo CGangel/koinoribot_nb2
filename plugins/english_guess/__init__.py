@@ -1,13 +1,4 @@
-"""
-猜单词插件 - English Guess
-
-支持三种游戏模式:
-- 猜英语单词 (wordle)
-- 猜数字 (digitle)
-- 猜日语 (tangole)
-
-迁移自 old_bot/koinoribot/english_guess
-"""
+"""猜单词插件：猜英语单词 / 猜数字 / 猜日语三模式（迁移自旧版）。"""
 
 import os
 import random

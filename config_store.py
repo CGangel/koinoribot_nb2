@@ -1,14 +1,4 @@
-"""配置存储模块：SQLite config 表 + 内存配置。
-
-- KoinoribotConfig 保留全部配置字段定义与默认值（superusers 除外，
-  超级用户列表迁移到 passwd.py）。
-- 启动时（插件导入期，先于子插件加载）把 config 表一次性加载进内存，
-  模块级 ``config`` 实例身份终身不变，修改时原地更新，所有
-  ``from .config_store import config`` 的持有方看到同一份数据。
-- 旧版 koinori_config.py（文件式配置）在首次启动时自动迁移入库并删除。
-- 配置面板（挂载于驱动端口 /config）通过 ``update_config()`` 修改配置：
-  pydantic 校验 → 写库 → 原地更新内存，仅修改时才写。
-"""
+"""配置存储：SQLite config 表 + 内存配置（模块级 config 实例身份不变、原地更新，面板经 update_config 改值）。"""
 
 from __future__ import annotations
 
@@ -163,7 +153,7 @@ _FISH_BAITS_DEFAULT: dict = {
 # 是否命中彩蛋，命中则按各单品 weight 权重抽取一件（彩蛋钓获不判定空军、
 # 不占鱼类图鉴档位，以「彩蛋」档单独记录）。条目与名称固定不可增删改。
 # 鱼饵包/无人认领的钱包/药水包三件固定钓到自动开启（无法储存，内容效果
-# 待补充）；钓鱼扫荡劵存入钓鱼背包（fish_props）。
+# 待补充）；钓鱼扫荡券存入钓鱼背包（fish_props）。
 _FISH_EGG_ITEMS_DEFAULT: dict = {
     "egg_bait_pack": {"name": "鱼饵包", "weight": 20,
                       "desc": "一个鱼饵包裹，掉落随机鱼饵", "art": ""},
@@ -171,8 +161,8 @@ _FISH_EGG_ITEMS_DEFAULT: dict = {
                    "desc": "不知是谁掉在河里的钱包", "art": ""},
     "egg_potion_pack": {"name": "药水包", "weight": 10,
                         "desc": "一个药水包裹，掉落随机药水", "art": ""},
-    "egg_sweep_ticket": {"name": "钓鱼扫荡劵", "weight": 50,
-                         "desc": "一键钓鱼扫荡劵", "art": ""},
+    "egg_sweep_ticket": {"name": "钓鱼扫荡券", "weight": 50,
+                         "desc": "一键钓鱼扫荡券", "art": ""},
 }
 
 # 药水目录（固定 3 种，由彩蛋「药水包」随机掉落）：装备后生效（同时只能
@@ -189,10 +179,10 @@ _FISH_POTION_ITEMS_DEFAULT: dict = {
 }
 
 # 钓鱼商店·道具商品表（键为道具 id，与钓鱼背包 fish_props 同一命名空间，
-# 如彩蛋「钓鱼扫荡劵」的 egg_sweep_ticket）：条目与名称固定不可增删改，
+# 如彩蛋「钓鱼扫荡券」的 egg_sweep_ticket）：条目与名称固定不可增删改，
 # 只能改各属性与价格。
 _FISH_SHOP_ITEMS_DEFAULT: dict = {
-    "egg_sweep_ticket": {"name": "钓鱼扫荡劵", "price": 10000,
+    "egg_sweep_ticket": {"name": "钓鱼扫荡券", "price": 10000,
                          "currency": "gold",
                          "desc": "一键钓鱼的入场券，一次性消耗10次钓鱼次数"},
 }
@@ -246,6 +236,21 @@ _FISH_GRADE_RANGES_DEFAULT: dict = {"D": [1.0, 1.2], "C": [1.2, 1.4],
                                     "B": [1.4, 1.6], "A": [1.6, 1.9],
                                     "S": [1.9, 2.2], "X": [2.2, 3.0]}
 
+# mlai 供应商预设：固定 5 个槽位（键 1-5 不可增删），AI 对话的供应商
+# 接入参数内嵌于每个槽位，mlai_preset_id 选择生效槽位（面板下拉切换）。
+# 记忆库/群聊等行为参数在顶层「AI对话」分区与预设项并列配置。
+_MLAI_PRESETS_DEFAULT: dict = {
+    str(slot): {
+        "name": "",
+        "mlai_api_key": "",
+        "mlai_api_base_url": "",
+        "mlai_model": "deepseek-chat",
+        "mlai_system_prompt": "你是冰祈，一个温柔可爱的 QQ 群聊 AI 助手，回答简洁友好，偶尔使用颜文字。",
+        "mlai_extra_params": {},
+    }
+    for slot in range(1, 6)
+}
+
 # 条目（键）固定的集合配置：渔具/鱼饵商品表、稀有度权重、级别区间、
 # 图鉴奖励档位——键不可新增/删除/改名，只能改各自属性；update_config
 # 强制保留内置默认键集，面板同侧禁用增删改键入口。
@@ -259,6 +264,7 @@ _FIXED_ENTRY_FIELDS: dict[str, dict] = {
     "fish_rarity_weights": _FISH_RARITY_WEIGHTS_DEFAULT,
     "fish_grade_ranges": _FISH_GRADE_RANGES_DEFAULT,
     "fish_collection_rewards": _FISH_COLLECTION_REWARDS_DEFAULT,
+    "mlai_presets": _MLAI_PRESETS_DEFAULT,
 }
 
 # 钓鱼商店商品与彩蛋/药水目录名称不可通过热更新修改（只能改属性与
@@ -303,12 +309,28 @@ _SHOP_CURRENCY_ATTR_FIELDS = (
 )
 _SCALAR_CURRENCY_FIELDS = ("fish_orb_currency", "fish_pump_currency")
 
+# 条目内渲染为多行文本框的属性（长文本类，如预设槽位的人格设定）
+_MULTILINE_ATTR_FIELDS: dict[str, tuple[str, ...]] = {
+    "mlai_presets": ("mlai_system_prompt",),
+}
+
 
 def _currency_choices() -> list[dict[str, str]]:
     """计价货币下拉选项 [{value, label}]"""
     return [
         {"value": key, "label": label} for key, label in FISH_CURRENCIES.items()
     ]
+
+
+def _mlai_preset_choices() -> list[dict[str, str]]:
+    """mlai 生效预设下拉选项：1-5，标签带槽位名（未命名显示占位）。"""
+    table = config.mlai_presets if isinstance(config.mlai_presets, dict) else {}
+    choices = []
+    for slot in ("1", "2", "3", "4", "5"):
+        entry = table.get(slot)
+        name = str(entry.get("name", "") or "").strip() if isinstance(entry, dict) else ""
+        choices.append({"value": slot, "label": f"{slot} · {name or '未命名'}"})
+    return choices
 
 
 def _fish_reward_key_choices() -> list[dict[str, str]]:
@@ -445,12 +467,15 @@ class KoinoribotConfig(BaseModel):
     init_starstone: int = 100               # 新用户初始星星
     init_kirastone: int = 5                 # 新用户初始宝石（羽毛石）
 
+    # ================== 货币API ==================
+    money_api_key: str = ""                             # 货币 API 密钥（留空则启动时自动生成强随机值并写回）
+    money_api_allow_hosts: list = ["127.0.0.1", "::1"]  # 允许调用货币 API 的客户端 IP 白名单
+
     # ================== 股票配置 ==================
     maxtype: int = 4                        # 股票持有种类上限
     maxcount: int = 500                     # 每种股票持有数量上限
 
     # ================== AI画图配置 ==================
-    deepseek_api_key: str = ""                                         # DeepSeek API Key (用于翻译提示词)
     gpt_image_api_key: str = ""                                        # GPT-Image-2 API Key
     gpt_image_api_base_url: str = "https://api.example.com/v1"
     gpt_image_model: str = "gpt-image-2"
@@ -464,7 +489,32 @@ class KoinoribotConfig(BaseModel):
     aidraw_high_quality: str = "high"                                  # 高质量画图、修图、人设图质量
     enable_gold_aidraw: bool = True                                    # 是否允许消耗金币画图；False 时仅允许使用免费次数
 
-    # ================== 其他配置 ==================
+    # ================== AI对话（mlai） ==================
+    mlai_enable: bool = True                     # AI 对话总开关
+    # 触发与屏蔽（触发词实时读取，热更新即时生效）
+    mlai_block_words: list = ["梦灵酱"]          # 屏蔽词（消息含任一词即不响应）
+    mlai_timeout: int = 60                       # 单次请求超时（秒）
+    mlai_user_cd: int = 20                       # 单人对话冷却（秒）
+    # 聊天计价（星星消耗）
+    mlai_starstone_enable: bool = True           # 聊天计价开关（开=每次对话消耗星星）
+    mlai_starstone_chars: int = 1000             # 每 1 星星计价的字符数（向上取整）
+    # 供应商接入参数内嵌于 mlai_presets 槽位，此字段选择生效槽位
+    mlai_preset_id: str = "1"                      # 生效的供应商预设槽位（1-5，面板下拉）
+    mlai_presets: dict = _MLAI_PRESETS_DEFAULT     # 供应商预设（固定 5 槽位，含全部对话参数）
+
+    # ================== AI对话·记忆（mlai） ==================
+    mlai_private_enable: bool = True       # 私聊总开关（关=仅等级0 SU可私聊，其余不触发不记录）
+    mlai_group_enable: bool = False        # 群聊域开关（关=群聊完全不响应不记录；开=白名单群可对话）
+    mlai_group_bind: dict = {}             # 官Bot group_openid → 真实群号 绑定（兼群聊白名单，纯手动维护）
+    mlai_active_window: int = 20           # 活跃记忆窗口条数（按更新时间取最近 N 条，0=不注入仅检索）
+    mlai_archive_per_scope: int = 5        # 归档记忆每域关键词检索上限
+    mlai_memory_ops_limit: int = 5         # 每次对话允许的记忆操作数上限
+    mlai_memory_max_len: int = 200         # 单条记忆内容长度上限
+    mlai_temp_limit: int = 20              # 临时上下文保留条数（每条消息一行，旁听/对话/bot回复共用）
+
+    # ================== 基础配置 ==================
+    # bot 名字（全局，AI 对话触发词；由 AI 对话模块实时读取，改名即时生效）
+    bot_name: str = "梦灵"
     # 黑名单用户
     blackusers: list = []
     global_msg_cd: int = 1                      # 全局每用户消息冷却（秒，0=关闭）
@@ -475,6 +525,13 @@ class KoinoribotConfig(BaseModel):
     # 真实合并转发，一律渲染为图片发送（渲染失败自动回落合并转发）
     forward_as_image: bool = False
 
+    # ================== 其他配置·内容审核 ==================
+    nsfw_review_enable: bool = False      # 用户提交内容外接审核总开关
+    nsfw_review_api_key: str = ""         # 审核 API Key
+    nsfw_review_api_base_url: str = ""    # 审核接口地址（OpenAI 兼容）
+    nsfw_review_model: str = ""           # 审核模型名
+    nsfw_review_extra_params: dict = {}   # 审核接口自定义请求参数（JSON）
+
     # 公网白名单模式
     public_bot: bool = False                 # 是否启用云bot模式
     permit_bot: list = []                   # 自己的bot账号列表（如果上面一项为True，则此项必填）
@@ -483,6 +540,10 @@ class KoinoribotConfig(BaseModel):
 
 # 面板分组（顺序即展示顺序）
 _FIELD_SECTIONS: dict[str, list[str]] = {
+    "基础配置": ["bot_name", "blackusers", "global_msg_cd",
+                "cache_clean_interval", "forward_as_image", "nsfw_review_enable",
+                "nsfw_review_api_key", "nsfw_review_api_base_url",
+                "nsfw_review_model", "nsfw_review_extra_params"],
     "群管理": [
         "join_request_auto_approve", "join_request_keywords", "join_request_bots",
         "join_request_bot_qq", "reply_quote", "at_sender",
@@ -535,15 +596,24 @@ _FIELD_SECTIONS: dict[str, list[str]] = {
         "return_item_fee", "init_gold", "init_luckygold", "init_starstone",
         "init_kirastone",
     ],
+    "货币API": ["money_api_key", "money_api_allow_hosts"],
     "股票配置": ["maxtype", "maxcount"],
     "AI画图配置": [
-        "deepseek_api_key", "gpt_image_api_key", "gpt_image_api_base_url",
+        "gpt_image_api_key", "gpt_image_api_base_url",
         "gpt_image_model", "gpt_image_response_format", "draw_cost",
         "daily_limit", "ai_draw_enable", "ai_draw_size", "shaojo_image_size",
         "aidraw_quality", "aidraw_high_quality", "enable_gold_aidraw",
     ],
-    "其他配置": ["blackusers", "global_msg_cd", "cache_clean_interval",
-                "forward_as_image"],
+    "AI对话": [
+        "mlai_enable", "mlai_block_words",
+        "mlai_timeout", "mlai_user_cd",
+        "mlai_starstone_enable", "mlai_starstone_chars",
+        "mlai_preset_id", "mlai_presets",
+        "mlai_private_enable", "mlai_group_enable", "mlai_group_bind",
+        "mlai_active_window",
+        "mlai_archive_per_scope", "mlai_memory_ops_limit",
+        "mlai_memory_max_len", "mlai_temp_limit",
+    ],
     "公网白名单模式": ["public_bot", "permit_bot", "ip_address"],
 }
 
@@ -573,7 +643,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "fish_shop_rods": "鱼竿商品表：{id: {name, price, currency, desc, durability, repair_price, grade_weights}}；grade_weights 为级别概率 {D/C/B/A/S/X}（只影响级别，级别越高鱼越长）；currency 为购买计价货币（gold 金币/kirastone 宝石/luckygold 幸运币；修理固定金币）；durability 填 null 表示无耐久（如初始鱼竿）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_shop_lines": "鱼线商品表：{id: {name, price, currency, desc, durability, repair_price, luck}}；luck 为幸运值（百分点），用于抵消品种基础空军率，只影响空军概率；currency 为购买计价货币（gold 金币/kirastone 宝石/luckygold 幸运币；修理固定金币）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_shop_baits": "鱼饵商品表：{id: {name, price, currency, desc, unlimited, rarity_weights}}；rarity_weights 为稀有度概率 {普通/稀有/史诗/传说/神话}（只影响稀有度）；currency 为计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）；unlimited 填 true 表示无限使用（初始鱼饵）；其余为一次性用品，每次钓鱼消耗 1 个；条目与名称均不可新增/删除/修改，只能改各属性与价格",
-    "fish_shop_items": "道具商品表：{id: {name, price, currency, desc}}（钓鱼商店·道具栏）；键为道具 id（如钓鱼扫荡劵），购买后存入钓鱼背包；currency 为计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
+    "fish_shop_items": "道具商品表：{id: {name, price, currency, desc}}（钓鱼商店·道具栏）；键为道具 id（如钓鱼扫荡券），购买后存入钓鱼背包；currency 为计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）；条目与名称均不可新增/删除/修改，只能改各属性与价格",
     "fish_grade_ranges": "各级别的长度区间系数 {级别: [lo, hi]}：长度 = 基准长度 × 区间随机（D 从 ×1.0 起，各级首尾相接；修改会影响所有鱼的取长）；键为固定 6 级 D/C/B/A/S/X，不可增删改",
     "fish_sell_price_exponent": "售价指数：售价 = 基准售价 × 指数^(出售时长度 / 基准长度)；越大则养大后越值钱",
     "fish_lucky_tiers": "放生幸运币分档：[[售价下限, 幸运币], ...]；售价低于首档下限的鱼不可放生（默认 1万→1、5万→2、10万→5、100万→10）",
@@ -599,7 +669,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "fish_auto_sell_threshold": "自动处理阈值：开启自动处理后，成长到最大（可成长至）售价仍低于该金币数的鱼自动卖出，其余自动放入水族箱（水族箱满时交由玩家处理）",
     "fish_collection_rewards": "图鉴奖励目录：{稀有度:级别档: {奖励: {奖励键: 数量}}}；档位键固定（每稀有度 D/C/B/A/S/X 共 6 档、5 稀有度共 30 档，不可增删改），进入条目后在「奖励」块内增删改行即可调整奖励内容，单档可含多项；奖励键可用预留键 gold 金币/luckygold 幸运币/kirastone 宝石/orb 幸运宝珠/pump 氧气泵/fish_limit 每日钓鱼次数上限/su_code SU激活码获取权限，或钓鱼商店商品 id（鱼饵/鱼竿/鱼线，类型自动推导）；非消耗品（orb/pump/su_code/鱼竿/鱼线）数量强制 1；奖励发放时若已拥有该非消耗品按售价折算为对应货币；fish_limit 与 su_code 在领取后永久生效；档位解锁条件：该稀有度全部品种收集且全部品种级别 ≥ 档位",
     "fish_egg_rate": "彩蛋概率（百分点）：每次钓鱼先判定是否命中彩蛋，命中则按各彩蛋单品权重抽取单品（彩蛋不判定空军）；未命中按原稀有度权重抽取鱼类；幸运暴击必然走鱼类分支；0 = 关闭彩蛋",
-    "fish_egg_items": "彩蛋单品目录：{id: {name, weight, desc, art}}；weight 为单品抽取权重（各自可调，按比率归一）；鱼饵包/无人认领的钱包/药水包三件固定钓到自动开启（无法储存，奖励直接发放），钓鱼扫荡劵收入钓鱼背包；条目与名称固定不可增删改；art 为图片资源（URL 或相对路径，留空发文本）",
+    "fish_egg_items": "彩蛋单品目录：{id: {name, weight, desc, art}}；weight 为单品抽取权重（各自可调，按比率归一）；鱼饵包/无人认领的钱包/药水包三件固定钓到自动开启（无法储存，奖励直接发放），钓鱼扫荡券收入钓鱼背包；条目与名称固定不可增删改；art 为图片资源（URL 或相对路径，留空发文本）",
     "fish_potion_items": "药水目录：{id: {name, desc}}；固定 3 种（大鱼/稀有度/回溯），由彩蛋「药水包」随机掉落，发送 装备药水 <名称> 装备（同时只能装备一种，用完自动卸下）；大鱼/稀有度药水非彩蛋钓获各消耗1个提升对应抽取落点，回溯药水空军时消耗并重判一次；条目与名称固定不可增删改",
     "fish_orb_currency": "幸运宝珠计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）",
     "fish_pump_currency": "氧气泵计价货币（gold 金币/kirastone 宝石/luckygold 幸运币）",
@@ -615,11 +685,13 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "init_luckygold": "新用户首次入库时赠送的初始幸运币",
     "init_starstone": "新用户首次入库时赠送的初始星星",
     "init_kirastone": "新用户首次入库时赠送的初始宝石（羽毛石）",
+    # 货币API
+    "money_api_key": "货币 API（/money）调用密钥；留空时启动自动生成强随机密钥并写回此项，可点「显示敏感值」后查看；修改后立即生效（无需重启）",
+    "money_api_allow_hosts": "允许访问货币 API 的客户端 IP 白名单（每项一行）；默认仅本机（127.0.0.1 与 ::1）；填 * 允许全部来源（仅靠密钥保护，供跨机调用）；留空则拒绝所有访问",
     # 股票配置
     "maxtype": "每人最多持有的股票种类数",
     "maxcount": "每种股票的最大持有数量",
     # AI画图配置
-    "deepseek_api_key": "DeepSeek API Key（用于画图提示词翻译），注意保密",
     "gpt_image_api_key": "画图接口 API Key，注意保密",
     "gpt_image_api_base_url": "画图接口地址（OpenAI 兼容格式）",
     "gpt_image_model": "画图模型名",
@@ -632,11 +704,35 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "aidraw_quality": "普通画图/修图/人设图质量（low / medium / high）",
     "aidraw_high_quality": "高质量画图/修图/人设图质量（low / medium / high）",
     "enable_gold_aidraw": "是否允许花金币画图；关闭后只能用免费次数",
-    # 其他配置
+    # AI对话
+    "mlai_enable": "AI 对话总开关；关闭后触发词不响应（全局生效，与预设无关）",
+    "mlai_block_words": "屏蔽词列表（每项一行）：消息中包含任一词则完全不响应（静默，不回复任何内容）；默认含 梦灵酱（另一 bot 的触发词，更改触发词后仍建议保留）",
+    "mlai_timeout": "单次对话请求的超时时间（秒），全局生效，与预设无关",
+    "mlai_user_cd": "同一用户两次对话的最小间隔（秒），防止刷接口；全局生效，与预设无关",
+    "mlai_starstone_enable": "聊天计价开关：开启（默认）后每次触发对话消耗星星；触发时先组装第 2 轮完整输入计价（文本字符数 + 每张图片固定 100 字），星星不足则静默不响应；审核未通过或对话未正常完成时已扣星星自动退回",
+    "mlai_starstone_chars": "聊天计价费率：每消耗 1 星星对应的字符数（默认 1000 字/星，按向上取整计费；每张图片固定按 100 字计入）",
+    "mlai_preset_id": "当前生效的供应商预设槽位（下拉选择 1-5，选择即生效）；供应商接入参数都在下方 mlai_presets 槽位内配置",
+    "mlai_presets": "供应商预设（固定 5 个槽位，键不可增删）：每槽位内嵌供应商接入参数 {name, mlai_api_key, mlai_api_base_url, mlai_model, mlai_system_prompt（多行）, mlai_extra_params}；由 mlai_preset_id 选择生效槽位，热更新即时生效；自定义参数 true/false 与数字自动转类型，model/messages/stream/tools 不可覆盖；槽位内含密钥，注意保密",
+    # AI对话·记忆
+    "mlai_private_enable": "私聊总开关：开启（默认）时任何人可私聊对话；关闭后仅等级 0 的超级用户可私聊（供维护测试），其他人的私聊不触发对话、不记录上下文（静默）",
+    "mlai_group_enable": "群聊域总开关：开启后白名单（mlai_group_bind）中的群聊可对话（注入群聊记忆与群聊临时上下文，官Bot 群需绑定 group_openid→真实群号）；关闭后所有群聊完全不响应（静默，不触发不旁听不记录），私聊不受影响",
+    "mlai_group_bind": "群聊白名单（官Bot 群绑定表 {group_openid: 真实群号}，纯手动维护，不再自动登记）：不在列表中的群聊无论群聊域开关一律不响应（静默）。官Bot 群以 openid 为键、填真实群号后放行（同时供群聊记忆定位）；OneBot 群按绑定值（真实群号）匹配，需放行某 OneBot 群时填 {该群群号: 该群群号} 即可",
+    "mlai_active_window": "活跃记忆窗口：全局/群聊/用户记忆各自按更新时间取最近 N 条直接注入上下文，更早的为归档记忆（仅可被关键词检索）；0 = 不注入活跃记忆，仅靠检索",
+    "mlai_archive_per_scope": "归档记忆检索上限：第 1 轮提取的关键词在全局/群聊/用户归档记忆中检索时，每域最多注入条数",
+    "mlai_memory_ops_limit": "单次对话允许 AI 执行的记忆操作（新增/修改/删除）数量上限，超出部分忽略",
+    "mlai_memory_max_len": "单条记忆内容的最大长度（字），超长的记忆操作会被拒绝",
+    "mlai_temp_limit": "群聊/私聊临时上下文各自滚动保留的最近条数（每条消息一行：旁听消息、触发对话的消息与 bot 回复共用额度，默认 20 条）",
+    # 基础配置
+    "bot_name": "bot 名字（全局）：AI 对话触发词，消息中任意位置出现该词即触发对话（对话内容 = 去掉该词后的整条消息）；mlai / AI对话 前缀命令始终可用；修改即时生效；开启/关闭 AI 聊天指令的别名也基于此名",
     "blackusers": "黑名单用户（统一 UID 列表）",
     "global_msg_cd": "全局限频：同一用户两条消息的最小间隔（秒），间隔内的消息静默忽略；SU 豁免；0 = 关闭",
     "cache_clean_interval": "缓存清理周期（单位为秒），可优化内存占用，为0时关闭",
     "forward_as_image": "合并消息始终渲染为图片：开启后无论是否官Bot，合并消息（帮助/商店/图鉴等长文本）都不发送合并转发，一律渲染为图片发送（渲染失败自动回落合并转发）",
+    "nsfw_review_enable": "用户提交内容外接审核总开关：开启后用户可上传/自定义的内容（请叫我、上传头像、上传签到图片、宠物改名、扔/评论漂流瓶、我以后想吃）先经 LLM 审核，含色情、暴力、叛国、粗口、人身攻击等不适宜内容，或结合内容用途明显反常的则拒绝提交；关闭（默认）或接口未配置完整时不审核",
+    "nsfw_review_api_key": "内容审核 API Key（OpenAI 兼容接口），注意保密",
+    "nsfw_review_api_base_url": "内容审核接口地址（OpenAI 兼容，如 https://api.xx.com/v1）",
+    "nsfw_review_model": "内容审核模型名；需支持图片输入（多模态）才能审图片类内容，纯文本模型仅能审文字",
+    "nsfw_review_extra_params": "审核接口自定义请求参数（键值对）：true/false 与数字自动转类型；model/messages/stream 不可覆盖；可用于 thinking、reasoning_effort 等思考等级或服务商特有参数",
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
     "permit_bot": "豁免名单（云 bot 模式必填）：本名单内的bot将跳过白名单检查；QQ 号/官Bot appid 精确匹配，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",
@@ -645,7 +741,8 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
 
 # 面板展示时需要打码的字段（仅 API Key 类；显式清单，避免 join_request_keywords
 # 等含 "key" 字样的普通字段被误伤）
-_SECRET_FIELDS = {"deepseek_api_key", "gpt_image_api_key"}
+_SECRET_FIELDS = {"gpt_image_api_key", "money_api_key",
+                  "nsfw_review_api_key"}
 
 
 def is_secret_field(name: str) -> bool:
@@ -873,6 +970,9 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
                 locked_nested = _FIXED_NESTED_KEYS.get(name)
                 if locked_nested:
                     item["locked_nested_keys"] = sorted(locked_nested)
+                multiline = _MULTILINE_ATTR_FIELDS.get(name)
+                if multiline:
+                    item["multiline_attrs"] = sorted(multiline)
                 if name == "fish_collection_rewards":
                     item["nested_choices"] = {
                         "奖励": _fish_reward_key_choices(),
@@ -880,9 +980,11 @@ def dump_for_panel(reveal: bool = False) -> dict[str, Any]:
                 # 条目内的 currency 属性渲染为下拉（计价货币三选一）
                 if name in _SHOP_CURRENCY_ATTR_FIELDS:
                     item["attr_choices"] = {"currency": _currency_choices()}
-            # 标量字段下拉（幸运宝珠/氧气泵计价货币三选一）
+            # 标量字段下拉（幸运宝珠/氧气泵计价货币三选一；mlai 生效预设）
             if name in _SCALAR_CURRENCY_FIELDS:
                 item["choices"] = _currency_choices()
+            elif name == "mlai_preset_id":
+                item["choices"] = _mlai_preset_choices()
             items.append(item)
         sections[section] = items
     return {"sections": sections}
@@ -942,6 +1044,7 @@ _KEY_RENAMES: dict[str, str] = {
     "qqbot_reply_quote": "reply_quote",
     "bottle_craft_starstone": "bottle_craft_gold",
     "bottle_salvage_starstone": "bottle_salvage_gold",
+    "mlai_bot_name": "bot_name",
 }
 
 
@@ -1080,6 +1183,42 @@ def _migrate_potion_descs() -> None:
             logger.error(f"[config_store] 药水描述迁移失败: {e}")
 
 
+def _migrate_sweep_ticket_name() -> None:
+    """错字修正：存量库中钓鱼扫荡券的旧名「钓鱼扫荡劵」/旧描述更新为
+    「券」（只覆盖仍等于旧默认值的条目，用户自定义值保留）。"""
+    fixes = {
+        "fish_egg_items": {
+            "name": ("钓鱼扫荡劵", "钓鱼扫荡券"),
+            "desc": ("一键钓鱼扫荡劵", "一键钓鱼扫荡券"),
+        },
+        "fish_shop_items": {
+            "name": ("钓鱼扫荡劵", "钓鱼扫荡券"),
+        },
+    }
+    for field, pairs in fixes.items():
+        table = getattr(config, field, None)
+        if not isinstance(table, dict):
+            continue
+        new_table = {}
+        changed = False
+        for item_id, entry in table.items():
+            if isinstance(entry, dict):
+                new_entry = dict(entry)
+                for attr, (old, new) in pairs.items():
+                    if entry.get(attr) == old:
+                        new_entry[attr] = new
+                        changed = True
+                new_table[item_id] = new_entry
+            else:
+                new_table[item_id] = entry
+        if changed:
+            try:
+                update_config({field: new_table})
+                logger.info(f"[config_store] 钓鱼扫荡券错字修正：{field}")
+            except ValueError as e:
+                logger.error(f"[config_store] 钓鱼扫荡券错字迁移失败: {e}")
+
+
 def _rename_legacy_keys(conn) -> None:
     valid_keys = KoinoribotConfig.model_fields
     for old, new in _KEY_RENAMES.items():
@@ -1103,6 +1242,135 @@ def _rename_legacy_keys(conn) -> None:
         conn.commit()
 
 
+# mlai 旧版顶层字段并入 mlai_presets 后的存量迁移键（搬入槽位 1）。
+# mlai_timeout / mlai_user_cd 已回归顶层 schema 字段（其顶层行是现行
+# 配置而非遗留数据），不在此列——若列入会与 knobs 上移迁移互相乒乓
+# （每次启动先搬进槽位 1、再被搬回顶层并重写 presets）
+_MLAI_LEGACY_FIELDS = (
+    "mlai_api_key", "mlai_api_base_url", "mlai_model", "mlai_system_prompt",
+    "mlai_max_context", "mlai_extra_params",
+)
+
+
+def _migrate_mlai_legacy(conn) -> None:
+    """把已入库的 mlai 旧顶层配置搬进预设槽位 1（仅覆盖仍为默认值的项）。
+
+    需先于 stale 清理执行，避免旧值被当废弃行删除。
+    """
+    legacy: dict[str, Any] = {}
+    for field in _MLAI_LEGACY_FIELDS:
+        row = conn.execute(
+            "SELECT value FROM config WHERE key = ?", (field,)
+        ).fetchone()
+        if row is None:
+            continue
+        try:
+            legacy[field] = json.loads(row["value"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+    if not legacy:
+        return
+
+    row = conn.execute(
+        "SELECT value FROM config WHERE key = 'mlai_presets'"
+    ).fetchone()
+    try:
+        presets = (
+            json.loads(row["value"]) if row else copy.deepcopy(_MLAI_PRESETS_DEFAULT)
+        )
+    except (json.JSONDecodeError, TypeError):
+        presets = copy.deepcopy(_MLAI_PRESETS_DEFAULT)
+    slot = presets.get("1") if isinstance(presets, dict) else None
+    if not isinstance(slot, dict):
+        slot = copy.deepcopy(_MLAI_PRESETS_DEFAULT["1"])
+
+    defaults = _MLAI_PRESETS_DEFAULT["1"]
+    moved = [
+        field for field, value in legacy.items()
+        if slot.get(field, defaults.get(field)) == defaults.get(field)
+    ]
+    for field in moved:
+        slot[field] = legacy[field]
+    if not moved:
+        return
+
+    presets["1"] = slot
+    conn.execute(
+        "INSERT INTO config (key, value, updated_at) VALUES ('mlai_presets', ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+        "updated_at = excluded.updated_at",
+        (json.dumps(presets, ensure_ascii=False), time.time()),
+    )
+    conn.commit()
+    logger.info(f"[config_store] mlai 旧顶层配置已并入预设槽位 1：{', '.join(moved)}")
+
+
+# mlai_timeout / mlai_user_cd 上移为顶层字段后，槽位内自定义值的搬迁默认值
+_MLAI_PRESET_KNOBS = (("mlai_timeout", 60), ("mlai_user_cd", 20))
+
+
+def _migrate_mlai_preset_knobs(conn) -> None:
+    """把预设槽位内自定义的 mlai_timeout / mlai_user_cd 搬出为顶层字段。
+
+    仅当顶层尚无该行时搬（优先槽位 1，其次任一非默认槽位），搬完从
+    各槽位删除旧键；全部为默认值时只清理旧键。
+    """
+    row = conn.execute(
+        "SELECT value FROM config WHERE key = 'mlai_presets'"
+    ).fetchone()
+    if row is None:
+        return
+    try:
+        presets = json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return
+    if not isinstance(presets, dict):
+        return
+
+    moved: list[str] = []
+    for field, default in _MLAI_PRESET_KNOBS:
+        exists = conn.execute(
+            "SELECT 1 FROM config WHERE key = ?", (field,)
+        ).fetchone()
+        if exists is not None:
+            continue
+        value = default
+        for slot_id in ("1", "2", "3", "4", "5"):
+            entry = presets.get(slot_id)
+            if not isinstance(entry, dict):
+                continue
+            raw = entry.get(field)
+            if raw is not None and str(raw) != str(default):
+                value = raw
+                break
+        conn.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (?, ?, ?)",
+            (field, json.dumps(value), time.time()),
+        )
+        moved.append(field)
+
+    cleaned = False
+    for entry in presets.values():
+        if not isinstance(entry, dict):
+            continue
+        if any(field in entry for field, _ in _MLAI_PRESET_KNOBS):
+            for field, _ in _MLAI_PRESET_KNOBS:
+                entry.pop(field, None)
+            cleaned = True
+    if not moved and not cleaned:
+        return
+
+    conn.execute(
+        "INSERT INTO config (key, value, updated_at) VALUES ('mlai_presets', ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+        "updated_at = excluded.updated_at",
+        (json.dumps(presets, ensure_ascii=False), time.time()),
+    )
+    conn.commit()
+    if moved:
+        logger.info(f"[config_store] mlai 预设槽位内的 {', '.join(moved)} 已上移为顶层配置")
+
+
 def init_config_store(
     db_path: Optional[str] = None,
     legacy_config_path: Optional[Path] = None,
@@ -1120,6 +1388,10 @@ def init_config_store(
         _ensure_table(conn)
         # 字段改名迁移（需先于 stale 清理，保留旧键的值）
         _rename_legacy_keys(conn)
+        # mlai 旧顶层字段并入预设槽位 1（需先于 stale 清理）
+        _migrate_mlai_legacy(conn)
+        # mlai_timeout / mlai_user_cd 槽位值上移为顶层（需先于 stale 清理）
+        _migrate_mlai_preset_knobs(conn)
         # 清理已从 schema 删除的字段残留行
         valid_keys = tuple(KoinoribotConfig.model_fields)
         placeholders = ",".join("?" * len(valid_keys))
@@ -1149,6 +1421,8 @@ def init_config_store(
     _migrate_bait_unlimited()
     # 药水效果实装：占位描述更新为定稿文案（自定义描述保留）
     _migrate_potion_descs()
+    # 钓鱼扫荡券错字修正（自定义名称/描述保留）
+    _migrate_sweep_ticket_name()
     logger.info(f"[config_store] 配置加载完成：{loaded} 项（数据库 {_db_path}）")
     return migrated_superusers
 

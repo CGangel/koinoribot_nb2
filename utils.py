@@ -1,8 +1,4 @@
-"""
-工具函数模块
-
-提供通用工具函数，适配 nonebot2
-"""
+"""通用工具函数：数据读写、图片 Base64、红包拆分等（适配 nonebot2）。"""
 
 import io
 import os

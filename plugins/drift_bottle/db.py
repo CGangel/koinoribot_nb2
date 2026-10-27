@@ -1,13 +1,4 @@
-"""漂流瓶（drift_bottle）数据库层。
-
-自旧版钓鱼插件完整迁出、与钓鱼玩法解耦：bottles / bottle_comments 两张
-表沿用旧版结构（原库中的漂流瓶数据无缝保留，ID 继续从 10001 自增），
-新增 bottle_inventory 表保存每人的漂流瓶持有数（旧版存于钓鱼背包
-JSON，随旧版移除而废弃）。
-
-约定：沿用全插件统一的 user_uid_mapping 外键级联；连接按次创建，
-读写经 run_in_executor 包装为 async（同 fish / chongwu）。
-"""
+"""漂流瓶数据库层：bottles / bottle_comments / bottle_inventory 表。"""
 
 import asyncio
 import sqlite3

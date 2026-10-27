@@ -15,6 +15,7 @@ from ...tools import get_uid, send_group_forward_msg, build_forward_chain  # 项
 from ...su_manager import is_su_contributor     # 项目内部工具：判断是否为 0 级 SU
 from ...money import get_database_path          # 项目内部工具：获取统一数据库路径
 from ...uid_manager import is_uid_exists        # 项目内部工具：校验目标 UID 是否存在
+from ...nsfw_review import review_user_content  # 项目内部工具：外接 LLM 内容审核
 
 # ==========================================
 # 第二部分：注册这个插件在机器人中
@@ -246,6 +247,13 @@ async def handle_add(args: Message = CommandArg(), uid: int = Depends(get_uid)):
     if len(food_name) > 5:
         await add_cmd.finish("📏 食物名称太长，暂不支持输入（最多5个字）")
 
+    # 外接 LLM 内容审核
+    passed, reason = await review_user_content(
+        text=food_name, scene="用户添加到自己「今天吃什么」抽奖菜单的食物名"
+    )
+    if not passed:
+        await add_cmd.finish(f"🚫 {reason}")
+
     reply_text = ""
     # 加锁：保证数据库读写安全，防止并发冲突
     async with _io_lock:
@@ -400,7 +408,7 @@ async def handle_help(bot: Bot, event: Event):
     try:
         # 尝试使用合并转发（防止长文本刷屏）
         chain = await build_forward_chain(bot, msg_list, user_id=int(bot.self_id))
-        await send_group_forward_msg(event, bot, chain)
+        await send_group_forward_msg(event, bot, chain, width=1000, two_column=True)
     except Exception:
         # 如果合并转发失败（例如官方QQ机器人限制），降级为普通文本发送
         fallback_text = "\n".join(msg_list)

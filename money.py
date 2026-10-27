@@ -1,9 +1,4 @@
-"""
-用户资产管理模块
-
-管理用户金币、星星、宝石等资产，使用统一 UID 系统。
-对业务层暴露当前用户钱包代理，例如 money.gold -= 1000。
-"""
+"""用户资产管理：金币/星星/宝石等资产 + 当前用户钱包代理（money.gold -= 1000）。"""
 
 from contextvars import ContextVar
 import sqlite3
@@ -283,6 +278,43 @@ class _MoneyRepository:
             if conn:
                 conn.close()
 
+    def decrease_if_enough(self, uid: int, key: str, value: int) -> Optional[bool]:
+        """余额足够时才扣减（单语句原子校验+扣减，无竞态）。
+
+        返回 True=已扣减 / False=余额不足 / None=用户不存在或写库失败。
+        与 decrease 不同：绝不透支，供货币 API 等外部调用使用。
+        """
+        self._ensure_initialized()
+
+        if key not in KEYWORD_SET:
+            return None
+
+        value = int(value)
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT 1 FROM user_money WHERE uid = ?", (uid,))
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute(
+                f"UPDATE user_money SET {key} = {key} - ? WHERE uid = ? AND {key} >= ?",
+                (value, uid, value),
+            )
+            if cursor.rowcount == 0:
+                conn.rollback()
+                return False
+
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"[money] 足额扣减失败: {e}")
+            return None
+        finally:
+            if conn:
+                conn.close()
+
     # ===== 批量操作 =====
 
     def increase_all(self, key: str, value: int) -> int:
@@ -521,6 +553,16 @@ def init_money_database():
     _repository.init_database()
 
 
+def increase(uid: int, key: str, value: int) -> int:
+    """原子增加指定用户资产（货币 API 等模块级调用入口）。"""
+    return _repository.increase(uid, key, value)
+
+
+def checked_decrease(uid: int, key: str, value: int) -> Optional[bool]:
+    """余额足够时原子扣减（不透支）；True=已扣 / False=不足 / None=用户不存在。"""
+    return _repository.decrease_if_enough(uid, key, value)
+
+
 def translate_name(name: str) -> str:
     """将货币昵称转换为关键字。"""
     for key, names in NAME_MAP.items():
@@ -541,4 +583,6 @@ __all__ = [
     "get_database_path",
     "init_money_database",
     "translate_name",
+    "increase",
+    "checked_decrease",
 ]

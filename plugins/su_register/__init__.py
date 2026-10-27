@@ -1,12 +1,4 @@
-"""
-超级用户注册插件 - su_register
-
-提供 superusers 表的创建和 SU 注册功能。
-本文件不上传 git 仓库。
-
-命令:
-    注册su 激活码 - 使用激活码注册为 level 1 或 level 2 SU
-"""
+"""SU 注册插件：凭激活码注册 level 1/2 超级用户。"""
 
 import aiohttp
 

@@ -1,16 +1,4 @@
-"""官Bot 内嵌按钮（keyboard）与按钮回调（interaction）的通用工具。
-
-- build_keyboard(): 按行规格构造内嵌键盘（默认回调按钮：data 即回调标识）
-- send_keyboard_message(): 发送 markdown + 键盘的单条消息（msg_type=2）
-- image_markdown(): 字节图 → markdown 内嵌图片标签
-  （经 image_host 临时图床转公网 URL，需配置 ip_address）
-- send_image_with_keyboard(): 单条消息合并本地字节图与键盘；
-  图床不可用返回 False，调用方回退为「富媒体图片 + 按钮键盘」两条消息
-- register_interaction(): 注册按钮 data 的回调处理器。收到
-  INTERACTION_CREATE 事件后统一处理：先应答（PUT /interactions/{id}，
-  官方要求否则客户端一直转圈直至超时），再执行业务并被动回复处理结果
-  （锚点是事件最外层的 event_id，经 Bot.send 自动按场景路由）。
-"""
+"""官Bot 内嵌按钮（keyboard）与按钮回调（interaction）的通用工具。"""
 
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Union

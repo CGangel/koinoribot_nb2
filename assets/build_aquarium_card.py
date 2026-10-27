@@ -1,23 +1,4 @@
-"""生成水族箱卡片的底图（SVG → PNG）与粘贴槽位表。
-
-与 ``build_fishing_card.py`` 同一套路：底图**不含任何文字**，固定标签与动态
-数值一律在固定坐标用 PIL 粘贴（字重/抗锯齿一致），坐标/字号/列宽/配色集中
-在 ``assets/aquarium_card_slots.json``。
-
-**布局（单列）**：表头带（标题 + 槽位计数）+ 一行字段名（槽位/名称/稀有度/
-长度/售价/幸运值/成长所需时间）+ N 条数据行（每行一条鱼，竖向排序，最多
-20 条）+ 表尾提示带（4 行）。单列使卡片接近方形，不像双列那样扁长。
-
-底图由「表头带 / 字段名条 / 一条数据行条 / 表尾带」四段组成：渲染时按实际
-条数纵向重复行条，**不预留空行**，图片高度随条目数增长。
-
-列宽由字体实测宽度算出（字段名与最宽数据样例取较宽者），导出到槽位表的
-``columns``；成品量化用的调色板策略见 ``palette``（见渲染模块说明）。
-
-用法：
-    python assets/build_aquarium_card.py
-输出：src/img/fish/aquarium_card.png、assets/aquarium_card_slots.json
-"""
+"""生成水族箱卡片底图（SVG→PNG）与粘贴槽位表 aquarium_card_slots.json（python assets/build_aquarium_card.py）。"""
 
 import json
 import math

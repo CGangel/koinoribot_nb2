@@ -1,9 +1,4 @@
-"""
-签到卡片生成模块 - aslogin_v3
-
-完整迁移自旧版 koinoribot
-功能：签到卡片生成、钱包图片生成
-"""
+"""签到卡片与钱包图片生成模块（迁移自旧版）。"""
 
 import asyncio
 import io

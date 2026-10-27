@@ -108,7 +108,7 @@ feisheng_help_txt = """
 @feisheng_help_cmd.handle()
 async def handle_feisheng_help(event: Event, bot: Bot):
     chain = await build_forward_chain(bot, [feisheng_help_txt])
-    await send_group_forward_msg(event, bot, chain)
+    await send_group_forward_msg(event, bot, chain, width=1000, two_column=True)
 
 
 # ===== 宠物飞升 (不变) =====

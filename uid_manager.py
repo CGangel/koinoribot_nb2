@@ -1,11 +1,4 @@
-"""
-UID 统一管理模块
-
-为 OneBot 和 QQ-Bot 双协议提供统一的用户标识(UID)系统。
-- 自动创建唯一 UID（从 10001 开始）
-- 双槽位设计：onebot_id 和 qqbot_id
-- 预留手动绑定功能（后续实现）
-"""
+"""UID 统一管理：OneBot/QQ-Bot 双协议统一用户标识（onebot_id + qqbot_id 双槽位）。"""
 
 import random
 import sqlite3

@@ -1,9 +1,4 @@
-"""
-宠物插件 - chongwu
-
-完整迁移自旧版 koinoribot
-功能：扭蛋、领养、投喂、玩耍、进化、技能、商店
-"""
+"""宠物插件：扭蛋、领养、投喂、玩耍、进化、技能与商店（迁移自旧版）。"""
 
 import random
 import time
@@ -20,6 +15,7 @@ from nonebot.params import CommandArg, Depends
 from ...money import money
 from ...config_store import config
 from ...tools import get_uid, send_group_forward_msg, build_forward_chain
+from ...nsfw_review import review_user_content
 
 from .petconfig import (
     GACHA_REWARDS, GACHA_CONSOLE_PRIZE, GACHA_CONFIG,
@@ -102,7 +98,7 @@ pet_help = f"""
 @pet_help_cmd.handle()
 async def handle_pet_help(event: Event, bot: Bot):
     chain = await build_forward_chain(bot, [pet_help])
-    await send_group_forward_msg(event, bot, chain)
+    await send_group_forward_msg(event, bot, chain, width=1000, two_column=True)
 
 
 # ===== 买宝石 =====
@@ -283,6 +279,13 @@ async def handle_adopt(
     for other_uid, pet in user_pets.items():
         if pet.get("name") == pet_name and other_uid != uid:
             await adopt_cmd.finish(f"名字'{pet_name}'已被使用，请换一个！")
+
+    # 外接 LLM 内容审核
+    passed, reason = await review_user_content(
+        text=pet_name, scene="用户领养宠物时给它起的名字"
+    )
+    if not passed:
+        await adopt_cmd.finish(reason)
     
     pet_type = temp_pet["type"]
     pet_data = get_pet_data()
@@ -982,7 +985,14 @@ async def handle_rename(
     pet = await get_user_pet(uid)
     if not pet or pet.get("temp_data"):
         await rename_cmd.finish(NO_PET_MESSAGE)
-    
+
+    # 外接 LLM 内容审核
+    passed, reason = await review_user_content(
+        text=new_name, scene="用户给宠物起的名字"
+    )
+    if not passed:
+        await rename_cmd.finish(reason)
+
     old_name = pet["name"]
     pet["name"] = new_name
     await update_user_pet(uid, pet)
@@ -1281,7 +1291,7 @@ pet_skill = f"""幼年体/成长体/成年体可学习1/3/5个技能
 @skill_help_cmd.handle()
 async def handle_skill_help(event: Event, bot: Bot):
     chain = await build_forward_chain(bot, [pet_skill])
-    await send_group_forward_msg(event, bot, chain)
+    await send_group_forward_msg(event, bot, chain, width=1000, two_column=True)
 
 
 # ===== 查看进化分支 =====

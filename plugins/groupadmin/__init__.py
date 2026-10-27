@@ -1,23 +1,4 @@
-"""群管理子插件（初步）：入群申请自动审批（事件驱动）。
-
-QQBot 侧：GROUP_JOIN_REQUEST 推送事件（koinoribot_nb2/qq_bot_api_patch.py
-注册的本地补丁，需 .env QQ_BOTS.intent 开启 "group_members": true）。
-按官方文档，查询申请列表与事件推送都要求 bot 为群管理员，因此能收到
-事件即已具备管理员身份，无需再二次校验。
-
-OneBot 侧：GroupRequestEvent 请求事件实时推送；平台无管理员保证，
-审批前用 get_group_member_info 校验 bot 是否为管理员/群主。
-
-放行规则：
-1. 自动审批开关开启，且关键词列表非空；
-2. 发起审批的 bot 在允许列表中（join_request_bots，可填 QQ 号或官Bot
-   appid）：OneBot 的 self_id 即 QQ 号直接比对；官Bot 的 appid 直接
-   比对，或经 join_request_bot_qq 绑定的 QQ 号比对（appid 在 bot
-   连接时自动登记，只需补填 QQ 号）；
-3. 验证内容（验证消息/问答答案）命中任一关键词。
-
-配置见配置面板（挂载于驱动端口 /config）“群管理”分区。
-"""
+"""群管理子插件：入群申请自动审批（官Bot 事件 + OneBot 请求事件，规则见配置面板群管理分区）。"""
 
 import re
 

@@ -1,9 +1,4 @@
-"""
-Koinoribot NB2 - 主插件入口
-
-从旧版 hoshinobot/nonebot1.8 迁移的 koinoribot
-支持 OneBot V11 和 QQ-Bot 双协议
-"""
+"""Koinoribot NB2 主插件入口：双协议（OneBot V11 / QQ 官方）插件包，自动加载 plugins/ 子插件。"""
 
 from pathlib import Path
 import nonebot
@@ -99,6 +94,7 @@ async def init_koinoribot():
 # 配置面板（挂载于驱动端口 /config，与 ws 共用端口）
 from . import config_web
 from . import image_host
+from . import money_api
 
 # 周期缓存清理（malloc_trim，面板「缓存清理周期」热控制；自身注册启动钩子）
 from . import mem_trim  # noqa: F401
@@ -108,6 +104,7 @@ from . import mem_trim  # noqa: F401
 async def start_config_panel():
     config_web.mount_config_web()
     image_host.mount_image_host()
+    money_api.mount_money_api()
 
 
 # 加载子插件

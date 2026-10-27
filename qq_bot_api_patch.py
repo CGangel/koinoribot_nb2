@@ -1,29 +1,4 @@
-"""nonebot 适配器补丁集（QQ 群管理 API 为上游 PR #234 的向后移植）。
-
-适配器 1.7.2（截至 2026-09 的 PyPI 最新版）缺少以下官Bot群管理接口，
-上游 master 分支已在 PR #234 实现但尚未发版。本模块将这些方法按与上游
-完全相同的签名补到 QQBot 类上，适配器发版后自动跳过、改用原生实现：
-
-- GET  /v2/groups/{group_id}/info                                  获取群基本信息（白名单接口）
-- GET  /v2/groups/{group_id}/restrict_chat_setting                 查询群禁言状态
-- POST /v2/groups/{group_id}/restrict_chat_setting                 设置群成员禁言（op=add/update/del，最长30天）
-- POST /v2/groups/{group_id}/approval_join_request/{member_openid} 审批入群申请（approve/decline）
-- GET  /v2/groups/{group_id}/join_request_list                     拉取入群申请列表（join_request_id 来源）
-
-撤回接口（DELETE /v2/groups/{group_openid}/messages/{message_id}）与
-群消息全量事件 GROUP_MESSAGE_CREATE 在 1.7.2 中已原生支持，无需补丁。
-
-另含：
-- QQReplyMessage.message_type/msg_idx 可选化：修复平台合并消息（事件
-  message_type=103）下发的 msg_elements 元素缺字段导致事件解析失败被丢弃。
-- 回复装饰（config 群管理.at_sender / reply_quote）：官Bot 群/单聊回复自动
-  附带 message_reference（线上已验证，平台不支持 bot 发 @）；OneBot V11 统一
-  管理 @回复者+换行 与原生 reply_message 注入。
-- apply_all()：插件加载时统一应用（koinoribot_nb2/__init__.py 调用）。
-
-所有禁言/审批接口均要求机器人拥有群管理员身份。
-本模块原位于 mlbot 根目录（git 仓库外），现随插件仓库维护。
-"""
+"""nonebot 官Bot 适配器补丁集：补齐 1.7.2 缺失的群管理 API（上游 PR #234 向后移植）、合并消息兼容与回复装饰。"""
 
 from __future__ import annotations
 

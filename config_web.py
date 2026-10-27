@@ -1,15 +1,4 @@
-"""配置面板（挂载于驱动端口的 /config 路径）与“冰祈配置”指令。
-
-- 面板列出 config 表全部配置项：不同模块在各自的分区子页展示
-  （左侧导航切换）；集合类配置（嵌套 dict 或条目超过 12 项，如鱼
-  品种表、商店商品表）提供二级编辑子页，可逐条增删改。
-- 修改保存时走 config_store.update_config：校验 → 写库 → 原地更新内存。
-  未保存的修改保存在页面草稿中，切换子页不丢失。
-- 密码取自 passwd.py 的 PANEL_PASSWORD；未配置时拒绝一切登录。
-- 防爆破：同一 IP 在 10 分钟窗口内密码错 5 次即锁定 15 分钟；
-  会话 cookie 有效期 12 小时，仅保存在内存（重启后需重新登录）。
-- 与 OneBot ws 端口共用驱动端口（路径 /config），不单独开防火墙端口。
-"""
+"""配置面板（/config 路径）与「冰祈配置」指令：分区子页、集合二级编辑、密码登录与防爆破。"""
 
 from __future__ import annotations
 
@@ -352,11 +341,12 @@ _PAGE_HTML = """<!DOCTYPE html>
   .openbtn:hover { background: #e3ecfb; }
   .field .desc { font-size: 11.5px; color: var(--sub); margin-top: 3px; line-height: 1.5; }
 
-  input[type=text], input[type=number], select { padding: 8px 10px; border: 1px solid var(--line);
+  input[type=text], input[type=number], select, textarea { padding: 8px 10px; border: 1px solid var(--line);
     border-radius: 8px; font-size: 13px; font-family: ui-monospace, Consolas, monospace;
     outline: none; min-width: 0; width: 100%; transition: border-color .15s;
     background: #fff; color: var(--ink); }
-  input:focus, select:focus { border-color: var(--accent); }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 72px; line-height: 1.55; }
 
   .switch { position: relative; display: inline-block; width: 46px; height: 25px; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
@@ -804,7 +794,7 @@ function renderFieldPage(f) {
       if (!k) return;
       const obj = {};
       entry.querySelectorAll(':scope > .ebody > .frow').forEach(row => {
-        const input = row.querySelector('input, select');
+        const input = row.querySelector('input, select, textarea');
         obj[row.dataset.sk] = coerce(input.value, input.dataset.etype);
       });
       entry.querySelectorAll(':scope > .ebody > .nblock').forEach(block => {
@@ -823,31 +813,39 @@ function renderFieldPage(f) {
     refreshDirty();
   }
 
-  function addScalarRow(body, sk, sv, locked) {
-    const row = el('div', 'frow');
-    row.dataset.sk = sk;
-    row.appendChild(el('label', null, locked ? sk + '（锁定）' : sk));
-    // 条目内指定属性渲染为下拉（如计价货币 currency，选项来自后端）
-    const attrChoices = (f.attr_choices || {})[sk] || null;
-    let input;
-    if (attrChoices) {
-      input = buildChoiceSelect(attrChoices, sv);
-      input.addEventListener('change', syncEntries);
-    } else {
-      input = document.createElement('input');
-      input.type = 'text';
-      input.dataset.etype = typeof sv === 'number' ? 'number'
-        : (typeof sv === 'boolean' ? 'boolean' : 'string');
-      input.value = sv === undefined || sv === null ? '' : String(sv);
-      input.addEventListener('input', syncEntries);
+    function addScalarRow(body, sk, sv, locked) {
+      const row = el('div', 'frow');
+      row.dataset.sk = sk;
+      row.appendChild(el('label', null, locked ? sk + '（锁定）' : sk));
+      // 条目内指定属性渲染为下拉（如计价货币 currency，选项来自后端）
+      const attrChoices = (f.attr_choices || {})[sk] || null;
+      // 条目内长文本属性渲染为多行文本框（如人格设定 mlai_system_prompt）
+      const multiline = (f.multiline_attrs || []).includes(sk);
+      let input;
+      if (attrChoices) {
+        input = buildChoiceSelect(attrChoices, sv);
+        input.addEventListener('change', syncEntries);
+      } else if (multiline) {
+        input = document.createElement('textarea');
+        input.rows = 4;
+        input.dataset.etype = 'string';
+        input.value = sv === undefined || sv === null ? '' : String(sv);
+        input.addEventListener('input', syncEntries);
+      } else {
+        input = document.createElement('input');
+        input.type = 'text';
+        input.dataset.etype = typeof sv === 'number' ? 'number'
+          : (typeof sv === 'boolean' ? 'boolean' : 'string');
+        input.value = sv === undefined || sv === null ? '' : String(sv);
+        input.addEventListener('input', syncEntries);
+      }
+      if (locked) {
+        input.disabled = true;
+        input.title = '名称不可修改：只能修改属性与价格（新增商品可填新名称）';
+      }
+      row.appendChild(input);
+      body.appendChild(row);
     }
-    if (locked) {
-      input.disabled = true;
-      input.title = '名称不可修改：只能修改属性与价格（新增商品可填新名称）';
-    }
-    row.appendChild(input);
-    body.appendChild(row);
-  }
 
   function addNestedBlock(body, sk, sv) {
     const block = el('div', 'nblock');

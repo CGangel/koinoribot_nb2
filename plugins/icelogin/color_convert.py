@@ -1,10 +1,4 @@
-"""颜色转换工具（纯 Python，无第三方依赖）
-
-用于将 LAB 颜色空间转换为 RGB。原先依赖 scikit-image
-（skimage.color.lab2rgb），已按同一算法链路重写：
-Lab(D65 参考白，与 skimage 默认一致) → XYZ(D65) → 线性 sRGB → gamma。
-移除 scikit-image 依赖后输出与原实现一致（逐通道差 ≤1，舍入级）。
-"""
+"""颜色转换工具：LAB→RGB（纯 Python 重写，替代 scikit-image 依赖）。"""
 
 # CIE LAB → XYZ，D65 参考白（2° 视场，skimage lab2xyz 的默认参数）
 _XN, _YN, _ZN = 0.95047, 1.0, 1.08883

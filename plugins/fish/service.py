@@ -1,10 +1,4 @@
-"""新版钓鱼（fish）业务逻辑层。
-
-FishService 面向命令层返回纯数据 dict，消息文案在 __init__ 里拼装。
-规则与公式集中在 fish_config（长度区间/售价/成长上限/槽位价格为固定
-规则，其余数值可配置），当前概率加成与成长公式为占位实现，
-TODO(balance) 标记处待补充。
-"""
+"""新版钓鱼业务逻辑层：FishService 返回纯数据 dict，规则与公式集中在 fish_config。"""
 
 import random
 import time
@@ -418,7 +412,7 @@ class FishService:
         - 无人认领的钱包：金币 1000~10000，25% 额外幸运币 1~3。
         - 药水包：1~3 瓶随机药水（逐瓶独立随机，入钓鱼背包）。
         第四件入钓鱼背包：
-        - 钓鱼扫荡劵：存入钓鱼背包（发送 一键钓鱼/十连钓鱼 使用）。
+        - 钓鱼扫荡券：存入钓鱼背包（发送 一键钓鱼/十连钓鱼 使用）。
         """
         egg_id = egg["id"]
         if egg_id == EGG_BAIT_PACK_ID:
@@ -466,8 +460,8 @@ class FishService:
                     "text": f"{egg['name']}自动打开了，获得 {names}"}
         if egg_id == EGG_SWEEP_TICKET_ID:
             await FishDB.add_prop(uid, egg_id, 1)
-            return {"mode": "fish_bag", "brief": "钓鱼扫荡劵×1",
-                    "text": "扫荡劵已自动存入背包，发送 一键钓鱼/十连钓鱼 使用。"
+            return {"mode": "fish_bag", "brief": "钓鱼扫荡券×1",
+                    "text": "扫荡券已自动存入背包，发送 一键钓鱼/十连钓鱼 使用。"
                             "会一次性消耗10次钓鱼次数，并将钓到的鱼自动处理。"}
         return {"mode": "auto_open", "brief": "未配置发放内容",
                 "text": f"{egg['name']}自动打开了（未知彩蛋，未配置发放内容）"}

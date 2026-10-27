@@ -1,11 +1,4 @@
-"""
-AI 画图插件
-
-使用 DeepSeek V4 Flash 将用户的模糊描述翻译为英文图像提示词，
-再调用 GPT-Image-2 生成图像。支持附带参考图进行图片编辑。
-
-费用：100000 金币/次，每日限制 5 次/UID。
-"""
+"""AI 画图插件：GPT-Image 生成/编辑图像（金币计费 + 每日限额）。"""
 
 import sqlite3
 import time
@@ -39,7 +32,7 @@ from ._image_response import (
 
 __plugin_meta__ = PluginMetadata(
     name="ai_draw",
-    description="AI画图 - DeepSeek翻译提示词 + GPT-Image-2生成图像",
+    description="AI画图 - GPT-Image-2生成图像",
     usage=(
         "冰祈画图 <描述>    生成图像\n"
         "冰祈画图high <描述>    生成高质量图像，仅限 level 0 SU\n"
@@ -78,15 +71,6 @@ edit_high_cmd = on_command(
 )
 reset_all_usage_cmd = on_command("全局重置画图次数", priority=5, block=True)
 reset_usage_cmd = on_command("重置画图次数", priority=5, block=True)
-
-# DeepSeek 系统提示词
-PROMPT_TRANSLATE_SYSTEM = """You are a professional image prompt engineer. Your task is to convert the user's Chinese description into a concise, high-quality English prompt suitable for AI image generation (DALL-E / GPT-Image-2).
-
-Rules:
-1. Output ONLY the English prompt, nothing else — no quotes, no prefixes, no explanations.
-2. The prompt should be vivid and descriptive, including style, lighting, composition details.
-3. Keep it under 200 characters.
-4. Preserve the user's intent faithfully — do not add concepts the user didn't mention."""
 
 # ═══════════════ SQLite 日限 ═══════════════
 
@@ -279,8 +263,7 @@ async def on_startup():
     await loop.run_in_executor(None, init_db)
     logger.info(
         f"ai_draw 初始化完成 "
-        f"(deepseek_key={'***' if koinori_config.deepseek_api_key else '未配置'}, "
-        f"gpt_image_key={'***' if koinori_config.gpt_image_api_key else '未配置'})"
+        f"(gpt_image_key={'***' if koinori_config.gpt_image_api_key else '未配置'})"
     )
 
 
@@ -336,39 +319,6 @@ async def extract_image(event: Event) -> bytes | None:
     if not image_url:
         return None
     return await _download_reference_image(image_url)
-
-
-# ═══════════════ DeepSeek 翻译 ═══════════════
-
-async def translate_prompt(api_key: str, user_text: str) -> str:
-    """调用 DeepSeek V4 Flash 翻译提示词"""
-    url = "https://api.deepseek.com/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-    payload = {
-        "model": "deepseek-v4-flash",
-        "messages": [
-            {"role": "system", "content": PROMPT_TRANSLATE_SYSTEM},
-            {"role": "user", "content": user_text},
-        ],
-        "thinking": {"type": "enabled"},
-        "reasoning_effort": "high",
-        "stream": False,
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.error(f"DeepSeek API error: {resp.status} {text}")
-                raise RuntimeError(f"DeepSeek API 返回错误: {resp.status}")
-
-            data = await resp.json()
-            english_prompt = data["choices"][0]["message"]["content"].strip()
-            logger.info(f"DeepSeek translated prompt: {english_prompt}")
-            return english_prompt
 
 
 # ═══════════════ GPT-Image-2 ═══════════════
@@ -887,8 +837,6 @@ async def handle_draw(
     args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
-#    if not koinori_config.deepseek_api_key:
-#        await draw_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await handle_draw_command(event, uid, args, draw_cmd)
 
 
@@ -899,8 +847,6 @@ async def handle_draw_high(
     args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
-#    if not koinori_config.deepseek_api_key:
-#        await draw_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await ensure_high_quality_allowed(uid, draw_high_cmd)
     await handle_draw_command(
         event,
@@ -934,8 +880,6 @@ async def handle_edit(
     args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
-#    if not koinori_config.deepseek_api_key:
-#        await edit_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await handle_edit_command(event, uid, args, edit_cmd)
 
 
@@ -946,8 +890,6 @@ async def handle_edit_high(
     args: AdapterMessage = CommandArg(),
     uid: int = Depends(get_uid),
 ):
-#    if not koinori_config.deepseek_api_key:
-#        await edit_high_cmd.finish("未配置 DeepSeek API Key，请联系主人配置~")
     await ensure_high_quality_allowed(uid, edit_high_cmd)
     await handle_edit_command(
         event,

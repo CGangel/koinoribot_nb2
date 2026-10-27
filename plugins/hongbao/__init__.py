@@ -1,9 +1,4 @@
-"""
-红包插件 - hongbao
-
-提供发红包、抢红包功能
-迁移自旧版 koinoribot
-"""
+"""红包插件：发红包、抢红包（迁移自旧版）。"""
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional

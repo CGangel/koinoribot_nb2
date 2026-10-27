@@ -1,14 +1,4 @@
-"""临时图床：官Bot 图文 markdown 内嵌图片用。
-
-QQ 官方平台的 markdown 内嵌图片要求公网可访问 URL（发送时平台会下载
-转存），本地渲染的字节图（BuildImage 面板等 base64）没有 URL。本模块把
-字节图**仅在内存中**短暂暴露为本服务上的 URL，不落盘。清理策略（面向
-0.5G 内存小机）：平台首次抓取（即转存完成）后宽限 3 秒立即删除；从未
-被抓取的条目由 10 秒 TTL 兜底；并发条目上限 64。地址基于 config 的
-ip_address 与驱动端口（与 OneBot ws 端口共用，路径 /img/{token}，
-不额外开防火墙端口）。未配置 ip_address 时 serve_image 返回 None，
-调用方（qq_bot_api_patch）回退到降级引用路径。
-"""
+"""临时图床：把本地字节图仅在内存中短暂暴露为公网 URL，供官Bot markdown 内嵌图片（不落盘）。"""
 
 import asyncio
 import secrets

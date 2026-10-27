@@ -1,19 +1,4 @@
-"""全局消息限频：限制同一用户"触发处理器"的频率（防刷屏；SU 豁免）。
-
-config 其他配置.global_msg_cd 为两次触发之间的最小间隔秒数；间隔内的
-消息静默忽略（IgnoredException，无任何回复）；0 = 关闭。
-
-计时与拦截分两级（避免纯聊天占用冷却窗口）：
-- run_preprocessor 计时：只有真正命中处理器的消息才启动冷却——
-  未触发任何功能的聊天（官Bot全量模式的 GROUP_MESSAGE_CREATE、
-  OneBot 的 message.group.normal 等）不占用窗口，紧随其后的指令不受影响。
-- event_preprocessor 拦截：冷却中的消息在事件级静默丢弃，不会放行给
-  低优先级的兜底处理器。
-
-UID 用只读查询（get_uid_by_external_id，不自动建档）——纯聊天的陌生
-用户不会因限频被写库，其首次触发指令时由处理器正常建档，此后纳入限频。
-仅对 message 类事件生效（notice/request/meta 不受影响）。
-"""
+"""全局消息限频：限制同一用户触发处理器的频率（config.global_msg_cd，SU 豁免；0=关闭）。"""
 
 from typing import Optional
 

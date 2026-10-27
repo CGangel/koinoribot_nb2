@@ -1,9 +1,4 @@
-"""
-请叫我XXX 插件 - call_me_please
-
-允许用户自定义冰祈对自己的称呼。
-数据由于持久化存储到 SQLite 的 koinoribot.db 中。
-"""
+"""请叫我：用户自定义冰祈对自己的称呼（0 级 SU 可改他人，存 koinoribot.db）。"""
 
 import os
 from nonebot import on_command, get_driver
@@ -14,6 +9,7 @@ from nonebot.log import logger
 
 from ...config_store import config
 from ...tools import get_uid, build_image_msg, get_sender_nickname
+from ...nsfw_review import review_user_content
 from ...resources import get as get_res
 from ...su_manager import is_su_contributor
 from ...nickname import get_user_nickname, set_user_nickname
@@ -101,7 +97,14 @@ async def handle_call_me(bot: Bot, event: Event, uid: int = Depends(get_uid), ar
     # 屏蔽词检查
     if any(word in message for word in BANNED_WORD):
         return await _finish_rejection("不可以教坏冰祈..", no_msg)
-            
+
+    # 外接 LLM 内容审核
+    passed, reason = await review_user_content(
+        text=message, scene="用户为自己设置的自定义昵称，bot 会用它称呼该用户"
+    )
+    if not passed:
+        return await _finish_rejection(reason, no_msg)
+
     # 更新数据库
     if set_user_nickname(uid, message):
         await call_me_cmd.finish("好~")

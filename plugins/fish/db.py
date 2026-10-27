@@ -1,20 +1,4 @@
-"""新版钓鱼（fish）数据库层。
-
-表结构：
-- fish_players:    玩家状态（装备的鱼竿/鱼线实例、使用中的鱼饵、装备中的药水、水族箱槽位、统计）
-- fish_gear_items: 鱼竿/鱼线实例（含耐久；初始渔具不落库、由 NULL 表示）
-- fish_bait_bag:   商店鱼饵库存（uid + bait_id 唯一；初始鱼饵无限不落库）
-- fish_props:      钓鱼背包道具（uid + prop_id 唯一；彩蛋钓获的钓鱼扫荡劵与药水等）
-- fish_items:      鱼实例（背包/水族箱共用，place 区分）
-- fish_collection: 图鉴（按品种记录总数、历史最大级别与钓获时最大长度；
-                   彩蛋单品共用本表，仅以行的存在标记已钓到——不累计
-                   次数、无级别与长度）
-- fish_collection_rewards: 图鉴奖励领取记录（uid + 稀有度 + 级别档 唯一；
-                   每日次数上限加成与 SU 激活码权限由该表 + 配置推导）
-
-约定：沿用全插件统一的 user_uid_mapping 外键级联；连接按次创建，
-写操作经 run_in_executor 包装为 async（同旧版 fishing / chongwu）。
-"""
+"""新版钓鱼数据库层：玩家/渔具/鱼饵/道具/鱼实例/图鉴等表（uid 外键级联）。"""
 
 import asyncio
 import json
@@ -457,7 +441,7 @@ class FishDB:
 
         return await asyncio.get_event_loop().run_in_executor(None, _consume)
 
-    # ===== 钓鱼背包道具（彩蛋钓获的钓鱼扫荡劵等） =====
+    # ===== 钓鱼背包道具（彩蛋钓获的钓鱼扫荡券等） =====
 
     @classmethod
     async def add_prop(cls, uid: int, prop_id: str, num: int = 1):

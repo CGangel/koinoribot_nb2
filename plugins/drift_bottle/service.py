@@ -1,9 +1,4 @@
-"""漂流瓶（drift_bottle）业务逻辑层。
-
-BottleService 面向命令层返回纯数据 dict，消息文案在 __init__ 里拼装。
-与钓鱼玩法完全解耦：购买/合成/捞取均消耗金币
-（旧版的水之心体系随旧版钓鱼移除）。冷却时长与价格均可热更新配置。
-"""
+"""漂流瓶业务逻辑层：BottleService 返回纯数据 dict，文案在 __init__ 拼装。"""
 
 from ...config_store import config
 from ...money import money

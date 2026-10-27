@@ -1,12 +1,4 @@
-"""钓鱼卡片用鱼插画的公共构件与绘制入口。
-
-每条鱼一个独立函数（见 common / tier_*.py 的 draw_*），各自定义身体轮廓、
-鳍型与标志装饰，互不复用骨架，保证造型辨识度。本模块提供：
-
-- 复用构件：eye / gloss / sparkle / bubble / scallop / fin 等
-- svg(inner)：包成 256x256 透明底 SVG
-- ALL_DRAWERS：species_id -> 绘制函数（由 tier 模块汇总）
-"""
+"""鱼插画公共构件（eye/gloss/fin 等）与 svg() 包装、ALL_DRAWERS 绘制入口表。"""
 
 S = 256
 

@@ -1,12 +1,4 @@
-"""
-公网多端白名单子插件 - public_whitelist
-
-只有白名单中的bot才能触发事件。
-领养流程：用户申请 → SU审核 → 通过后加入白名单。
-使用SQLite持久化，启动时和新增/删除白名单时更新内存缓存。
-
-迁移自旧版 koinoribot public_whitelist
-"""
+"""公网多端白名单：只有白名单中的 bot 能触发事件（申请→SU 审核→入名单）。"""
 
 import json
 import sqlite3

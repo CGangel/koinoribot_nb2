@@ -1,9 +1,4 @@
-"""
-签到插件 - icelogin
-
-提供签到、钱包查看等功能
-迁移自旧版 koinoribot
-"""
+"""签到插件：签到卡片、钱包查看、头像/签到背景上传（迁移自旧版）。"""
 
 import base64
 
@@ -20,6 +15,7 @@ from .aslogin_v3 import get_src_path, del_custom_bg, dl_save_image, get_purse, a
 # 导入核心模块
 from ...money import money
 from ...utils import FreqLimiter
+from ...nsfw_review import review_user_content
 from ...tools import get_uid, get_sender_nickname, get_user_avatar_url, is_qqbot, is_onebot, build_forward_chain, send_group_forward_msg
 import nonebot.adapters.onebot.v11 as onebot_adapter
 from ...uid_manager import (
@@ -210,7 +206,15 @@ async def handle_upload_bg(
     user_gold = money.gold
     if user_gold < UPLOAD_BG_COST:
         await upload_bg_cmd.finish("金币不足...")
-    
+
+    # 外接 LLM 内容审核（在扣费与落盘之前）
+    passed, reason = await review_user_content(
+        image_urls=[image_url],
+        scene="用户上传的签到卡片自定义背景图片，公开展示",
+    )
+    if not passed:
+        await upload_bg_cmd.finish(reason)
+
     # 下载并保存图片（使用uid作为文件名）
     await dl_save_image(image_url, uid)
     
@@ -629,6 +633,15 @@ async def handle_upload_avatar(
     image_url = _extract_avatar_image_url(event)
     if not image_url:
         await upload_avatar_cmd.finish("请加上图片一起发送哦~")
+        return
+
+    # 外接 LLM 内容审核（在保存之前）
+    passed, reason = await review_user_content(
+        image_urls=[image_url],
+        scene="用户上传的个人头像图片，会在签到卡片等处展示",
+    )
+    if not passed:
+        await upload_avatar_cmd.finish(reason)
         return
 
     try:

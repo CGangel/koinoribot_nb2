@@ -1,9 +1,4 @@
-"""
-炒股插件 - chaogu
-
-完整迁移自旧版 koinoribot
-功能：股票交易、行情查看、持仓管理、市场事件、幸运游戏
-"""
+"""炒股插件：股票交易、行情查看、持仓管理、市场事件与幸运游戏（迁移自旧版）。"""
 
 import math
 import random
@@ -124,7 +119,7 @@ async def handle_stock_help(event: Event, bot: Bot):
     # 构建转发消息链
     chain = await build_forward_chain(bot, [help_chaogu])
     # 发送转发消息
-    await send_group_forward_msg(event, bot, chain)
+    await send_group_forward_msg(event, bot, chain, width=1000, two_column=True)
 
 
 # ===== 股票列表 =====

@@ -1,25 +1,4 @@
-"""每日钓鱼次数限制（fish 模块内的共用工具）。
-
-从旧版 fishing 插件的 util.DatabaseManager 抽出，只保留 fish_limit 表
-相关能力。表结构（uid 主键，日期变更时自动重置当日计数）：
-
-- count       当日已钓次数（跨天清零）
-- temp_bonus  当日临时增益（宠物技能「捕鱼达人」、幸运转盘等，跨天清零）
-- perm_bonus  永久增益（图鉴奖励的「每日钓鱼次数上限」，跨天保留）
-- date_str    以上三项所属日期（据此判断是否需要重置）
-
-当天总次数上限 = 配置基础次数（config.fish_limit_count）
-                + temp_bonus + perm_bonus
-
-增益写入方式：临时增益由调用方以负数 count 追加（check_and_update_
-fish_limit）；永久增益在图鉴奖励领取时经 add_perm_bonus 累加，并在
-初始化 / 钓鱼模块启动时经 reconcile_perm_bonus 按「领取记录 + 当前
-配置」重算校正（配置面板改动在重启后对已领取用户生效）。
-
-虽随 fish 模块存放，但 **chongwu / chaogu 也共用**这套每日次数口径
-（三方写入同一张 fish_limit 表）；本模块只读 fish_config 的图鉴奖励
-配置，不依赖 fish 玩法本身。
-"""
+"""每日钓鱼次数限制（fish_limit 表）：基础次数 + 临时/永久增益，chongwu/chaogu 共用。"""
 
 import sqlite3
 from datetime import datetime

@@ -1,13 +1,4 @@
-"""漂流瓶插件 - drift_bottle
-
-自旧版钓鱼插件完整迁出、与钓鱼玩法解耦：
-- 获取：买漂流瓶（金币） / 合成漂流瓶（金币，价格可配置，默认 10000）
-- 扔漂流瓶（内容 ≤60 字）、捡漂流瓶（随机，消耗金币，默认 1000；
-  池中至少 5 个，合并转发展示正文与评论）、评论漂流瓶（金币）、
-  漂流瓶数量
-- 管理（仅 SU）：捡指定漂流瓶 / 删除漂流瓶
-旧版依赖的水之心体系随旧版钓鱼移除；漂流瓶持有数存 bottle_inventory 表。
-"""
+"""漂流瓶插件：买/合成/扔/捡/评论漂流瓶（金币经济，与钓鱼解耦，SU 管理指令）。"""
 
 import datetime
 
@@ -21,6 +12,7 @@ from ...nickname import get_user_nickname
 from ...su_manager import is_su
 from ...tools import build_forward_chain, get_uid, send_group_forward_msg
 from ...utils import FreqLimiter
+from ...nsfw_review import review_user_content
 from .service import BottleService
 
 __plugin_meta__ = PluginMetadata(
@@ -152,6 +144,15 @@ async def handle_throw_bottle(
         )
 
     content = args.extract_plain_text()
+
+    # 外接 LLM 内容审核（在消耗漂流瓶之前；空内容留给业务层提示）
+    if content.strip():
+        passed, reason = await review_user_content(
+            text=content, scene="用户写入漂流瓶的正文，随机用户可捡到阅读"
+        )
+        if not passed:
+            await throw_bottle_cmd.finish(reason)
+
     result = await BottleService.throw_bottle(uid, content)
     if not result["ok"]:
         if result["reason"] == "empty":
@@ -257,6 +258,13 @@ async def handle_comment_bottle(
         await comment_bottle_cmd.finish("用法: 评论漂流瓶 漂流瓶ID 内容")
     bottle_id = int(parts[0].strip())
     content = parts[1]
+
+    # 外接 LLM 内容审核（在扣费之前）
+    passed, reason = await review_user_content(
+        text=content, scene="用户对漂流瓶的公开评论，其他用户可见"
+    )
+    if not passed:
+        await comment_bottle_cmd.finish(reason)
 
     result = await BottleService.comment_bottle(uid, bottle_id, content)
     if not result["ok"]:

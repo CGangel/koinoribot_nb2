@@ -93,15 +93,18 @@ async def _load_art_bytes(art) -> bytes | None:
 
 
 async def _finish_as_forward(
-    matcher, event: Event, bot: Bot, text: str, width: int = 600
+    matcher, event: Event, bot: Bot, text: str, width: int = 600,
+    two_column: bool = False,
 ) -> None:
     """长文本（帮助/商店/图鉴）以伪造合并转发发送，避免刷屏；
     官Bot 平台自动转为图片；失败降级为直接发送。
-    width 为转图片时的画布宽度（双列排版需放宽，见钓鱼商店）。"""
+    width 为转图片时的画布宽度；two_column 双列排版（帮助卡片）。"""
     sent = False
     try:
         chain = await build_forward_chain(bot, [text])
-        await send_group_forward_msg(event, bot, chain, width=width)
+        await send_group_forward_msg(
+            event, bot, chain, width=width, two_column=two_column
+        )
         sent = True
     except Exception as error:
         logger.warning(f"合并转发发送失败，回退纯文本: {error}")
@@ -378,7 +381,7 @@ HELP_TEXT = """【钓鱼玩法】
 
 ==钓鱼商店==
   买鱼竿/买鱼线/买鱼饵 <名称> —— 购买对应的物品
-  买道具 <名称> —— 购买钓鱼扫荡劵等道具（一键钓鱼的入场券）
+  买钓鱼扫荡券 [数量] —— 购买钓鱼扫荡券（一键钓鱼的入场券）
   买幸运宝珠 —— 购买并装备幸运宝珠
   买氧气泵 —— 水族箱成长速率 +100%
   升级幸运宝珠 —— 消耗幸运币升级宝珠
@@ -392,7 +395,9 @@ HELP_TEXT = """【钓鱼玩法】
 
 @fish_help_cmd.handle()
 async def handle_fish_help(bot: Bot, event: Event):
-    await _finish_as_forward(fish_help_cmd, event, bot, HELP_TEXT)
+    await _finish_as_forward(
+        fish_help_cmd, event, bot, HELP_TEXT, width=1000, two_column=True
+    )
 
 
 # ===== 单抽钓鱼 =====
@@ -662,10 +667,10 @@ async def handle_sweep(
         await sweep_cmd.finish(
             f"鱼竿还在收线中，休息一会吧~({int(cast_freq.left_time(uid))}s)"
         )
-    # 扫荡劵：十连的入场券（钓到彩蛋「钓鱼扫荡劵」获得）
+    # 扫荡券：十连的入场券（钓到彩蛋「钓鱼扫荡券」获得）
     if await FishDB.get_prop_count(uid, EGG_SWEEP_TICKET_ID) < 1:
         await sweep_cmd.finish(
-            "没有钓鱼扫荡劵~钓鱼时有几率从彩蛋钓到，也可在钓鱼商店购买"
+            "没有钓鱼扫荡券~钓鱼时有几率从彩蛋钓到，也可发送 买钓鱼扫荡券 购买"
             "（发送 我的背包 查看库存）"
         )
     # 待处理鱼获会卡住后续杆（一键不经过待处理区，先清掉）
@@ -697,7 +702,7 @@ async def handle_sweep(
                 "明天再来吧~"
             )
 
-    # 前置条件齐备：消耗一张扫荡劵
+    # 前置条件齐备：消耗一张扫荡券
     await FishDB.consume_prop(uid, EGG_SWEEP_TICKET_ID, 1)
 
     results: list[dict] = []
@@ -1594,7 +1599,7 @@ async def handle_shop(
     left += [""] * (height - len(left))
     right += [""] * (height - len(right))
     lines = [
-        "买鱼竿/买鱼线/买鱼饵/买幸运宝珠/买氧气泵/买道具 <名称>"
+        "买鱼竿/买鱼线/买鱼饵/买幸运宝珠/买氧气泵/买钓鱼扫荡券 [数量]"
         "（计价货币见各商品售价）",
         "换鱼竿/换鱼线/装备鱼饵 <名称> 、升级幸运宝珠",
         "",
@@ -1701,7 +1706,7 @@ async def _gear_list_text(uid: int, two_column: bool = False) -> str:
     if not shown_potion:
         potion_lines.append("（空）")
 
-    # ==道具==（钓鱼背包中非药水的道具，如钓鱼扫荡劵；消耗到 0 的行
+    # ==道具==（钓鱼背包中非药水的道具，如钓鱼扫荡券；消耗到 0 的行
     # 仍留在表里，这里不显示）
     egg_names = {k: v["name"] for k, v in C.egg_table().items()}
     prop_lines = ["==道具=="]
@@ -1934,7 +1939,12 @@ async def handle_buy_bait(
 
 
 # ===== 道具（钓鱼商店·道具栏；消耗品入库钓鱼背包） =====
-buy_item_cmd = on_command("买道具", aliases={"购买道具"}, priority=5, block=True)
+buy_item_cmd = on_command(
+    "买钓鱼扫荡券",
+    aliases={"买钓鱼扫荡券", "买扫荡券", "买扫荡券", "购买钓鱼扫荡券"},
+    priority=5,
+    block=True,
+)
 
 
 @buy_item_cmd.handle()
@@ -1944,16 +1954,13 @@ async def handle_buy_item(
 ) -> None:
     parts = args.extract_plain_text().split()
     if not parts:
-        await buy_item_cmd.finish(
-            "用法: 买道具/购买道具 <名称> [数量]（见 钓鱼商店）"
-        )
+        num = 1
+    elif parts[0].isdigit():
+        num = int(parts[0])
+    else:
+        await buy_item_cmd.finish("用法: 买钓鱼扫荡券 [数量]（默认 1 张）")
 
-    item_id, _ = _find_by_name(item_table(), parts[0])
-    if item_id is None:
-        await buy_item_cmd.finish("没有这种道具，发送 钓鱼商店 查看列表")
-    num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
-
-    result = await FishService.buy_item(uid, item_id, num)
+    result = await FishService.buy_item(uid, EGG_SWEEP_TICKET_ID, num)
     if not result["ok"]:
         if result["reason"] == "bad_args" and result.get("sub") == "num":
             await buy_item_cmd.finish("数量必须大于0")

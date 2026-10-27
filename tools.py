@@ -1,8 +1,4 @@
-"""
-工具函数模块
-
-提供 NoneBot2 依赖注入兼容的工具函数，支持 OneBot V11 和 QQ-Bot 双协议。
-"""
+"""工具函数：NoneBot2 依赖注入兼容的双协议（OneBot V11 / QQ-Bot）通用工具。"""
 
 from typing import Optional, List, Dict, Any, Union
 import base64
@@ -278,6 +274,7 @@ async def send_group_forward_msg(
     bot: Bot,
     messages,
     width: int = 600,
+    two_column: bool = False,
 ) -> None:
     """
     发送合并转发消息
@@ -286,7 +283,8 @@ async def send_group_forward_msg(
         event: 事件对象
         bot: Bot 对象
         messages: 合并转发消息节点列表（onebot.Message 或 List[MessageSegment]）
-        width: 转为长图时的画布宽度（默认 600；双列排版可放宽）
+        width: 转为长图时的画布宽度（默认 600）
+        two_column: 纯文本节点转图片时按双列排版（帮助卡片用）
 
     Note:
         QQ-Bot 不支持合并转发，会降级为图片或普通消息依次发送；
@@ -300,7 +298,9 @@ async def send_group_forward_msg(
 
     compatible_nodes = _normalize_forward_nodes(messages)
     try:
-        image_bytes = await _nodes_to_image(compatible_nodes, width=width)
+        image_bytes = await _nodes_to_image(
+            compatible_nodes, width=width, two_column=two_column
+        )
         if image_bytes:
             await bot.send(event, build_image_msg(event, image_bytes))
             return
@@ -489,6 +489,53 @@ def _draw_column_line(
     return current_y
 
 
+def _draw_lines_in_column(
+    image: BuildImage,
+    lines: list,
+    x: int,
+    max_px: int,
+    current_y: int,
+    font_size: int,
+    line_spacing: int,
+) -> int:
+    """在单列内按序绘制多行文本（超宽自动换行），返回绘制后的 y。"""
+    for line in lines:
+        if not line:
+            current_y += font_size + line_spacing
+            continue
+        current_y = _draw_column_line(
+            image, line, x, max_px, current_y, font_size, line_spacing
+        )
+    return current_y
+
+
+def _draw_two_column_text(
+    image: BuildImage,
+    text: str,
+    width: int,
+    padding: int,
+    font_size: int,
+    line_spacing: int,
+) -> int:
+    """整段文本按行序折半分左右两列绘制（帮助卡片的紧凑双列排版）。
+
+    左列画前半行、右列画后半行（阅读顺序先左列后右列），两列各自按
+    列宽自动换行，返回两列中较大者的高度。"""
+    lines = text.split("\n")
+    half = (len(lines) + 1) // 2
+    col_width = (width - 3 * padding) // 2
+    right_x = padding * 2 + col_width
+    y_left = _draw_lines_in_column(
+        image, lines[:half], padding, col_width,
+        padding, font_size, line_spacing,
+    )
+    y_right = _draw_lines_in_column(
+        image, lines[half:], right_x, col_width,
+        padding, font_size, line_spacing,
+    )
+    return max(y_left, y_right)
+
+
 def _draw_wrapped_text(
     image: BuildImage,
     text: str,
@@ -646,8 +693,11 @@ async def _draw_node_segment(
     return current_y
 
 
-async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: int = 20) -> BuildImage:
-    """创建单个消息节点的图片"""
+async def _create_node_image(
+    node: Dict[str, Any], width: int = 600, font_size: int = 20,
+    two_column: bool = False,
+) -> BuildImage:
+    """创建单个消息节点的图片（two_column 时纯文本节点按双列排版）"""
     data = node.get('data', {})
     content = data.get('content', [])
     padding = 10
@@ -659,28 +709,47 @@ async def _create_node_image(node: Dict[str, Any], width: int = 600, font_size: 
     if isinstance(content, str):
         content = [{'type': 'text', 'data': {'text': content}}]
 
+    # 双列模式仅适用于纯文本节点（含图片等其他段时回落单列绘制）
+    texts: list = []
+    all_text = two_column and bool(content)
     for segment in content:
-        current_y = await _draw_node_segment(
-            img,
-            segment,
-            current_y,
-            width,
-            padding,
-            font_size,
-            line_spacing,
+        segment_type, segment_data = _segment_type_and_data(segment)
+        if segment_type == 'text':
+            texts.append(segment_data.get('text', ''))
+        else:
+            all_text = False
+    if all_text and any(texts):
+        current_y = _draw_two_column_text(
+            img, "\n".join(texts), width, padding, font_size, line_spacing,
         )
+    else:
+        for segment in content:
+            current_y = await _draw_node_segment(
+                img,
+                segment,
+                current_y,
+                width,
+                padding,
+                font_size,
+                line_spacing,
+            )
 
     if current_y + padding < temp_height:
         img.crop((0, 0, width, current_y + padding))
     return img
 
-async def _nodes_to_image(messages: List[Dict[str, Any]], width: int = 600) -> bytes:
-    """将消息链转换为长图（width 为画布宽度，双列排版可放宽）"""
+async def _nodes_to_image(
+    messages: List[Dict[str, Any]], width: int = 600,
+    two_column: bool = False,
+) -> bytes:
+    """将消息链转换为长图（width 为画布宽度；two_column 双列排版）"""
     images = []
-    
+
     for node in messages:
         try:
-            img = await _create_node_image(node, width=width)
+            img = await _create_node_image(
+                node, width=width, two_column=two_column
+            )
             images.append(img)
         except Exception as e:
             logger.warning(f"生成节点图片失败: {e}")

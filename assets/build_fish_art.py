@@ -1,14 +1,4 @@
-"""为 36 种鱼各生成一张透明背景 PNG 插画（贴到钓鱼卡片左栏）。
-
-每条鱼都有独立的绘制函数（assets/fish_art/tier_*.py），各自定义身体轮廓、
-鳍型与标志装饰，互不复用骨架，以保证造型辨识度与美观度。
-
-用法：
-    python assets/build_fish_art.py             # 生成全部
-    python assets/build_fish_art.py 普通 稀有    # 只生成指定稀有度
-    python assets/build_fish_art.py --sheet     # 另存九宫格对比图
-输出：src/img/fish/art/<species_id>.png（透明背景，256x256）
-"""
+"""为 36 种鱼生成透明背景 PNG 插画（python assets/build_fish_art.py [稀有度…] [--sheet]）。"""
 
 import subprocess
 import sys
