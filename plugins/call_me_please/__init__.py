@@ -60,9 +60,10 @@ def _build_no_message(event: Event):
 
 async def _finish_rejection(message: str, image_message=None) -> None:
     if image_message:
-        await call_me_cmd.finish(
-            Message(message) + image_message,
-        )
+        # 用图片段所属适配器的 Message 类拼接（适配器无关的抽象
+        # Message 基类不能直接构造）
+        message_class = image_message.get_message_class()
+        await call_me_cmd.finish(message_class(message) + image_message)
         return
     await call_me_cmd.finish(message)
 

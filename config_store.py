@@ -505,7 +505,7 @@ class KoinoribotConfig(BaseModel):
     # ================== AI对话·记忆（mlai） ==================
     mlai_private_enable: bool = True       # 私聊总开关（关=仅等级0 SU可私聊，其余不触发不记录）
     mlai_group_enable: bool = False        # 群聊域开关（关=群聊完全不响应不记录；开=白名单群可对话）
-    mlai_group_bind: dict = {}             # 官Bot group_openid → 真实群号 绑定（兼群聊白名单，纯手动维护）
+    mlai_group_bind: dict = {}             # 群聊白名单：键=真实群号，值=官Bot group_openid（可选，官Bot群聊需填）
     mlai_active_window: int = 20           # 活跃记忆窗口条数（按更新时间取最近 N 条，0=不注入仅检索）
     mlai_archive_per_scope: int = 5        # 归档记忆每域关键词检索上限
     mlai_memory_ops_limit: int = 5         # 每次对话允许的记忆操作数上限
@@ -716,7 +716,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     # AI对话·记忆
     "mlai_private_enable": "私聊总开关：开启（默认）时任何人可私聊对话；关闭后仅等级 0 的超级用户可私聊（供维护测试），其他人的私聊不触发对话、不记录上下文（静默）",
     "mlai_group_enable": "群聊域总开关：开启后白名单（mlai_group_bind）中的群聊可对话（注入群聊记忆与群聊临时上下文，官Bot 群需绑定 group_openid→真实群号）；关闭后所有群聊完全不响应（静默，不触发不旁听不记录），私聊不受影响",
-    "mlai_group_bind": "群聊白名单（官Bot 群绑定表 {group_openid: 真实群号}，纯手动维护，不再自动登记）：不在列表中的群聊无论群聊域开关一律不响应（静默）。官Bot 群以 openid 为键、填真实群号后放行（同时供群聊记忆定位）；OneBot 群按绑定值（真实群号）匹配，需放行某 OneBot 群时填 {该群群号: 该群群号} 即可",
+    "mlai_group_bind": "群聊白名单（纯手动维护）：键为真实群号，值为该群官Bot 的 group_openid（可选）。放行 OneBot 群只需填 {该群群号: ''}；放行官Bot 群需把群的 group_openid 填为该群号键的值（同时供群聊记忆定位）。不在列表中的群聊无论群聊域开关一律不响应（静默）",
     "mlai_active_window": "活跃记忆窗口：全局/群聊/用户记忆各自按更新时间取最近 N 条直接注入上下文，更早的为归档记忆（仅可被关键词检索）；0 = 不注入活跃记忆，仅靠检索",
     "mlai_archive_per_scope": "归档记忆检索上限：第 1 轮提取的关键词在全局/群聊/用户归档记忆中检索时，每域最多注入条数",
     "mlai_memory_ops_limit": "单次对话允许 AI 执行的记忆操作（新增/修改/删除）数量上限，超出部分忽略",

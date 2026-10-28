@@ -132,26 +132,34 @@ def group_enable() -> bool:
 
 
 def group_bind_id(openid: str) -> str:
-    """官Bot group_openid → 真实群号；未绑定返回空串。"""
+    """官Bot group_openid → 真实群号（键为群号、值为 openid 的反查）；
+    未绑定返回空串。"""
     mapping = getattr(config, "mlai_group_bind", None)
     if not isinstance(mapping, dict):
         return ""
-    value = mapping.get(str(openid))
-    return str(value).strip() if value is not None else ""
+    openid = str(openid).strip()
+    if not openid:
+        return ""
+    for group_id, bound_openid in mapping.items():
+        if str(bound_openid).strip() == openid:
+            key = str(group_id).strip()
+            if key:
+                return key
+    return ""
 
 
 def bound_group_ids() -> set[str]:
-    """mlai_group_bind 中已填真实群号的群号集合。"""
+    """白名单群号集合（mlai_group_bind 的键）。"""
     mapping = getattr(config, "mlai_group_bind", None)
     if not isinstance(mapping, dict):
         return set()
-    return {str(v).strip() for v in mapping.values() if str(v).strip()}
+    return {str(k).strip() for k in mapping.keys() if str(k).strip()}
 
 
 def group_whitelisted(scene: dict) -> bool:
     """群聊白名单（mlai_group_bind 兼官Bot 群绑定表，纯手动维护）：
-    官Bot 群需 openid 已绑定真实群号；OneBot 群需群号出现在绑定值中；
-    不在列表中的群聊无论群聊域开关一律静默。私聊场景恒放行。"""
+    键为真实群号；官Bot 群需 openid 已作为某个键的值绑定；OneBot 群
+    群号即键；不在列表中的群聊无论群聊域开关一律静默。私聊恒放行。"""
     if not scene.get("is_group"):
         return True
     openid = scene.get("openid") or ""

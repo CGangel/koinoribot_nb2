@@ -308,8 +308,8 @@ async def _process_chat(
     if result["status"] == "unbound_group":
         # 入口白名单已保证官Bot 群聊均已绑定，此分支仅为防御性兜底
         await matcher.finish(
-            "官Bot 群聊对话需要先在配置面板 mlai_group_bind 中把本群的 "
-            "group_openid 绑定到真实群号后才能使用"
+            "官Bot 群聊对话需要先在配置面板 mlai_group_bind 中以本群真实"
+            "群号为键、group_openid 为值添加白名单后才能使用"
         )
     if result["status"] == "error":
         await matcher.finish(result["message"])
