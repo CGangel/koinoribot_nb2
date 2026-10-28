@@ -703,20 +703,20 @@ function renderDict(f) {
     valIn.placeholder = '值';
     if (k !== undefined) keyIn.value = String(k);
     if (v !== undefined && v !== '') valIn.value = String(v);
+    // 键与值都必须挂 input 监听：任一改动即同步草稿（曾因提前返回
+    // 漏挂值监听，导致普通 dict 字段改值不保存）
+    keyIn.addEventListener('input', syncDict);
+    valIn.addEventListener('input', syncDict);
     if (fixedEntries) {
       keyIn.disabled = true;
       keyIn.title = FIXED_ENTRY_DESC;
+      row.append(keyIn, el('span', 'arrow', '→'), valIn);
     } else {
       const del = el('button', 'del', '✕');
       del.onclick = () => { row.remove(); syncDict(); };
       row.append(keyIn, el('span', 'arrow', '→'), valIn, del);
-      keyIn.addEventListener('input', syncDict);
-      wrap.appendChild(row);
-      return;
     }
-    row.append(keyIn, el('span', 'arrow', '→'), valIn);
     wrap.appendChild(row);
-    valIn.addEventListener('input', syncDict);
   }
 
   function syncDict() {
