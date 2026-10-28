@@ -198,7 +198,7 @@ def _help_text() -> str:
     name = settings.bot_name()
     return f"""【AI聊天】
 ==对话==
-  开启AI聊天 —— 「{name}请和我说话」也行；开启后提到「{name}」即可聊
+  启用AI聊天 —— 「{name}请和我说话」也行；开启后提到「{name}」即可聊
   关闭AI聊天 —— 「不理{name}了」也行；关闭后不再回应你（默认关闭）
   连续对话会记住上文；告诉过{name}的事会被长期记住；每次对话消耗星星
 
@@ -353,7 +353,7 @@ _MLAI_COMMAND_PREFIXES = (
     "mlai状态", "AI对话状态",
     "重置聊天", "mlai重置", "AI对话重置",
     "重置记忆", "重置群聊记忆", "重置全局记忆", "重置所有记忆",
-    "开启AI聊天", "开启ai聊天", "关闭AI聊天", "关闭ai聊天",
+    "启用AI聊天", "启用ai聊天", "关闭AI聊天", "关闭ai聊天",
     f"{settings.bot_name()}请和我说话", f"不理{settings.bot_name()}了",
     "冰祈帮助", f"{settings.bot_name()}帮助",
 )
@@ -440,8 +440,8 @@ async def handle_chat(
 # 聊天完全不响应（静默）。别名中的触发词在插件加载时按当前 bot_name
 # 固定（改名后需重启才更新别名；触发词本身实时生效）
 switch_on_cmd = on_command(
-    "开启AI聊天",
-    aliases={"开启ai聊天", f"{settings.bot_name()}请和我说话"},
+    "启用AI聊天",
+    aliases={"启用ai聊天", f"{settings.bot_name()}请和我说话"},
     priority=4,
     block=True,
 )
@@ -635,7 +635,7 @@ async def handle_status(
         f"""【mlai 状态】
 我的记忆：{memory_count} 条（活跃窗口 {window} 条）
 我的最近对话：{rows} / {max_rows} 条
-AI聊天：{'开启' if switch_on else '关闭'}（发送 开启AI聊天 / 关闭AI聊天 切换）
+AI聊天：{'开启' if switch_on else '关闭'}（发送 启用AI聊天 / 关闭AI聊天 切换）
 群聊记忆：{'开启' if settings.group_enable() else '关闭'}
 冷却：{settings.user_cd()} 秒/次
 {scene_line}"""
