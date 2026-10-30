@@ -34,6 +34,38 @@ nonebot.load_plugin("plugins.koinoribot_nb2")
 
 如果你的项目使用 `nonebot.load_plugins()` 或插件目录自动加载，也可以按项目现有方式加载。加载主插件后，`plugins/` 下的子插件会由 `koinoribot_nb2.__init__` 自动加载。
 
+4. 在 NoneBot2 项目根目录的 `.env` 中配置驱动与 QQ 官方机器人（范例）：
+
+```env
+HOST=0.0.0.0                  # 监听地址；配置面板与 OneBot 反向 ws 都挂在驱动端口上
+PORT=5021                     # 驱动端口（配置面板 /config/ 与 OneBot 反向 ws 共用）
+COMMAND_START=["","/","#"]    # 命令前缀；含 "" 表示可无前缀触发
+COMMAND_SEP=["."]             # 命令分隔符
+DRIVER=~fastapi+~httpx+~websockets   # fastapi=面板/OneBot 反向 ws；httpx+websockets=QQ 官方适配器
+
+# QQ 官方机器人（token 字段自适配器 1.7.3 起已废弃，无需填写）
+QQ_BOTS='
+[
+  {
+    "id": "你的 AppID",
+    "secret": "你的 AppSecret",
+    "intent": {
+      "c2c_group_at_messages": true,
+      "group_members": true,
+      "interaction": true
+    },
+    "use_websocket": true
+  }
+]
+'
+```
+
+说明：
+
+- `intent.group_members` 必须开启，否则收不到 `GROUP_JOIN_REQUEST` 入群申请事件；`interaction` 为按钮回调所需。
+- OneBot V11 协议端（NapCat、Lagrange 等）以**反向 WebSocket** 连接 `ws://<本机IP>:<PORT>/onebot/v11/ws`，`.env` 中无需额外连接配置。
+- SU（超级用户）不在 `.env` 的 `SUPERUSERS` 中配置，见下文「配置」一节的 `passwd.py` 说明。
+
 ## 配置
 
 除超级用户外的全部配置存储在 `src/database/koinoribot.db` 的 `config` 表中，启动时一次性加载进内存。历史版本使用的 `koinori_config.py` 文件会在首次启动时自动迁移入库并删除。

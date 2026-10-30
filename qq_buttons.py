@@ -17,9 +17,9 @@ class ImageReply:
     """图片回复载体：本地渲染的字节图 + 可选短说明文字 + 可选按钮键盘。
 
     分发器以 [text, file_image] 消息发送；官Bot 回复装饰补丁会把其转为
-    markdown 内嵌图（@回复者在前），图床不可用时降级富媒体原图发送。
-    携带 keyboard 时优先单条合并发送（markdown 内嵌图 + 键盘），图床
-    不可用回退「富媒体图片 + 按钮键盘」两条消息。
+    markdown 内嵌图（@回复者在前），素材上传失败时降级富媒体原图发送。
+    携带 keyboard 时优先单条合并发送（markdown 内嵌图 + 键盘），素材
+    上传失败回退「富媒体图片 + 按钮键盘」两条消息。
     """
 
     image: bytes
@@ -82,33 +82,27 @@ async def send_keyboard_message(bot: Bot, event: Event, markdown: str, keyboard)
         return False
 
 
-def image_markdown(data: bytes) -> str | None:
-    """字节图 → markdown 内嵌图片标签（经 image_host 临时图床转公网 URL）。
-
-    图床不可用（未配置 ip_address / 无 HTTP 服务端驱动）返回 None。
-    """
-    from .image_host import embed_image
-
-    embedded = embed_image(data)
-    if embedded is None:
-        return None
-    url, width, height = embedded
-    return f"![图片 #{width}px #{height}px]({url})"
-
-
 async def send_image_with_keyboard(
     bot: Bot, event: Event, image: bytes, keyboard, caption: str = ""
 ) -> bool:
     """单条消息合并本地字节图与内嵌键盘（markdown 内嵌图 + keyboard）。
 
-    图片经临时图床转公网 URL（平台发送时抓取转存，10 秒 TTL 足够）；
-    图床不可用返回 False，调用方可回退为两条消息。
+    字节图经 QQ 素材管理（qq_media）上传平台换 qqbot-media:// 引用
+    （无需公网图床；素材配额仅 100 张，消息发出即删除，平台发送时已
+    转存副本）；上传失败返回 False，调用方可回退为两条消息。
     """
-    tag = image_markdown(image)
-    if tag is None:
+    from .qq_media import embed_media_image, release_media_image
+
+    media = await embed_media_image(bot, image)
+    if media is None:
         return False
+    url, width, height, uploaded_id = media
+    tag = f"![图片 #{width}px #{height}px]({url})"
     body = f"{caption}\n{tag}" if caption else tag
-    return await send_keyboard_message(bot, event, body, keyboard)
+    try:
+        return await send_keyboard_message(bot, event, body, keyboard)
+    finally:
+        await release_media_image(bot, uploaded_id)
 
 
 def register_interaction(data: str, handler: InteractionHandler) -> None:

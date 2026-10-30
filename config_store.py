@@ -736,7 +736,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     # 公网白名单模式
     "public_bot": "是否启用云 bot（公网白名单）模式",
     "permit_bot": "豁免名单（云 bot 模式必填）：本名单内的bot将跳过白名单检查；QQ 号/官Bot appid 精确匹配，官Bot 还可经 join_request_bot_qq 绑定的 QQ 号命中",
-    "ip_address": "本机公网 IP（云 bot 模式必填；面板地址与官Bot图文markdown的临时图床也基于它；未配置时官Bot富媒体回复降级为引用）",
+    "ip_address": "本机公网 IP（云 bot 模式必填；配置面板地址基于它）",
 }
 
 # 面板展示时需要打码的字段（仅 API Key 类；显式清单，避免 join_request_keywords

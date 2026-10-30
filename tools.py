@@ -877,11 +877,9 @@ def get_qq_ref_idx(event: qq.Event) -> Optional[str]:
 
 
 def _load_qq_set_mute_state():
-    """加载官Bot禁言请求模型：优先本地补丁，适配器升级后回退原生模型。"""
-    try:
-        from nonebot.adapters.qq.models.qq import SetMemberMuteState
-    except ImportError:
-        from .qq_bot_api_patch import SetMemberMuteState
+    """加载官Bot禁言请求模型（适配器 1.7.3+ 原生提供）。"""
+    from nonebot.adapters.qq.models.qq import SetMemberMuteState
+
     return SetMemberMuteState
 
 
@@ -946,7 +944,7 @@ async def get_group_info(
             return {
                 "group_name": info.group_name,
                 "member_count": info.group_member_num,
-                "raw": info.model_dump(),
+                "raw": info.model_dump(mode="json"),
             }
         raise ValueError(f"不支持的协议: {type(bot)}")
     except Exception as e:
@@ -1010,8 +1008,8 @@ async def get_group_mute_setting(
         setting = await bot.get_group_mute_setting(group_id=group_openid)
         return {
             "mode": setting.global_rule.mode if setting.global_rule else None,
-            "members": [m.model_dump() for m in setting.members],
-            "raw": setting.model_dump(),
+            "members": [m.model_dump(mode="json") for m in setting.members],
+            "raw": setting.model_dump(mode="json"),
         }
     except Exception as e:
         logger.warning(f"查询群禁言状态失败: {e}")
@@ -1039,9 +1037,10 @@ async def get_group_join_requests(
             group_id=group_openid, cursor=cursor or None, limit=limit or None
         )
         return {
-            "requests": [r.model_dump() for r in result.requests],
+            # 官方返回字段名为 list（原生模型同名字段）
+            "requests": [r.model_dump(mode="json") for r in result.list],
             "next_cursor": result.next_cursor or "",
-            "raw": result.model_dump(),
+            "raw": result.model_dump(mode="json"),
         }
     except Exception as e:
         logger.warning(f"拉取入群申请列表失败: {e}")

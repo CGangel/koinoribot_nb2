@@ -261,13 +261,10 @@ _qq_join_request_cls_cache = None
 
 
 def _qq_join_request_event_cls():
-    """GROUP_JOIN_REQUEST 事件类：优先适配器原生（发版后），回退本地补丁。"""
+    """GROUP_JOIN_REQUEST 事件类（适配器 1.7.3+ 原生提供）。"""
     global _qq_join_request_cls_cache
     if _qq_join_request_cls_cache is None:
-        try:
-            from nonebot.adapters.qq.event import GroupJoinRequestEvent
-        except ImportError:
-            from ...qq_bot_api_patch import GroupJoinRequestEvent
+        from nonebot.adapters.qq.event import GroupJoinRequestEvent
         _qq_join_request_cls_cache = GroupJoinRequestEvent
     return _qq_join_request_cls_cache
 

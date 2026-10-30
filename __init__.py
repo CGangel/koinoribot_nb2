@@ -18,7 +18,7 @@ _migrated_superusers = config_store.init_config_store(
 )
 config_store.ensure_passwd_file(_migrated_superusers)
 
-# 适配器补丁（QQ 群管理 API/入群事件/模型兼容/被动引用；OneBot 被动引用）。
+# 适配器回复装饰补丁（QQ/OneBot 被动回复的 @回复者与自动引用）。
 # 原 mlbot 根目录 qq_bot_api_patch.py，现随插件加载应用，全部幂等。
 from . import qq_bot_api_patch as _adapter_patch
 
@@ -93,7 +93,6 @@ async def init_koinoribot():
 
 # 配置面板（挂载于驱动端口 /config，与 ws 共用端口）
 from . import config_web
-from . import image_host
 from . import money_api
 
 # 周期缓存清理（malloc_trim，面板「缓存清理周期」热控制；自身注册启动钩子）
@@ -103,7 +102,6 @@ from . import mem_trim  # noqa: F401
 @driver.on_startup
 async def start_config_panel():
     config_web.mount_config_web()
-    image_host.mount_image_host()
     money_api.mount_money_api()
 
 

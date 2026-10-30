@@ -10,3 +10,5 @@ scikit-image~=0.22.0 #非必须
 filetype==1.2.0
 mathparse>=0.2.7,<0.3.0
 pycryptodome>=3.20.0,<4.0.0
+nonebot-adapter-qq>=1.7.3,<2.0.0 #群管理 API/GROUP_JOIN_REQUEST 事件需原生提供
+nonebot-adapter-onebot>=2.4.6,<3.0.0

@@ -1,417 +1,10 @@
-"""nonebot 官Bot 适配器补丁集：补齐 1.7.2 缺失的群管理 API（上游 PR #234 向后移植）、合并消息兼容与回复装饰。"""
+"""nonebot 适配器回复装饰补丁：官Bot/OneBot 被动回复的 @回复者与自动引用（config 面板开关统一控制）。"""
 
 from __future__ import annotations
 
 import functools
-from datetime import datetime, timedelta, timezone
-from enum import Enum
-from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from nonebot.compat import type_validate_python
-from nonebot.drivers import Request
-
-from nonebot.utils import escape_tag
-from nonebot.adapters.qq.utils import API, exclude_none, log
-
-
-# ================== 响应/请求模型（与上游 master models/qq.py 同名同构） ==================
-
-
-class GroupInfoReturn(BaseModel):
-    """群基本信息。注意：该接口为白名单机制，无权限的机器人调用返回错误码 11253。"""
-
-    group_openid: str | None = None
-    group_name: str | None = None
-    group_finger_memo: str | None = None      # 群简介
-    group_class_text: str | None = None       # 群分类
-    group_tags: list[str] | None = None       # 群标签
-    group_member_num: int | None = None       # 群成员人数
-
-
-class GroupBotStateReturn(BaseModel):
-    """机器人在群内的状态（member_role: member=普通成员, admin=管理员, owner=群主）"""
-
-    member_openid: str | None = None
-    joined_at: str | None = None
-    allow_proactive_msg: bool | None = None
-    recv_msg_setting: str | None = None       # all / only_mention / mention_and_context
-    member_role: Literal["member", "admin", "owner"] | None = None
-
-
-class MuteScheduleRule(BaseModel):
-    """定时禁言规则（RFC3339 时间段）"""
-
-    task_id: str | None = None
-    start_at: str | None = None
-    end_at: str | None = None
-    enabled: bool = True
-
-
-class MuteRecurringRule(BaseModel):
-    """周期禁言规则（weekdays: 1~7，1=周一；北京时间 HH:mm，end 小于 start 表示跨天）"""
-
-    task_id: str | None = None
-    weekdays: list[int] = []
-    start_time: str | None = None
-    end_time: str | None = None
-    enabled: bool = True
-
-
-class GlobalMuteRule(BaseModel):
-    """全员禁言规则"""
-
-    mode: Literal["none", "always", "schedule"] = "none"
-    schedule_rules: list[MuteScheduleRule] | None = None
-    recurring_rules: list[MuteRecurringRule] | None = None
-
-
-class MemberMuteState(BaseModel):
-    """禁言中的成员状态（仅返回未过期的成员）"""
-
-    member_openid: str
-    mute_expire_at: str | None = None
-    username: str | None = None               # 被禁言成员的昵称
-    union_openid: str | None = None
-
-
-class GroupRestrictChatSettingReturn(BaseModel):
-    """群禁言状态"""
-
-    global_rule: GlobalMuteRule | None = None
-    members: list[MemberMuteState] = []
-
-
-class SetMemberMuteState(BaseModel):
-    """设置成员禁言请求项。
-
-    op=add/update 只能操作普通成员，不能操作群主、管理员、机器人；
-    单次请求 members 不能超过 20 个；最大禁言时长 30 天。
-    """
-
-    op: Literal["add", "update", "del"]
-    member_openid: str
-    mute_expire_at: str | datetime | timedelta | None = None
-
-    @field_validator("mute_expire_at", mode="before")
-    @classmethod
-    def _normalize_expire(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        if isinstance(v, timedelta):
-            return (datetime.now(timezone.utc) + v).isoformat()
-        return v
-
-
-class ReviewQA(BaseModel):
-    """入群验证问答（管理员设置的问题 + 申请人填写的答案）"""
-
-    question: str | None = None
-    answer: str | None = None
-
-
-class VerifyInfo(BaseModel):
-    """用户入群验证方式信息"""
-
-    method: str | None = None            # verify_message / admin_review_qa
-    verify_message: str | None = None
-    review_qa_list: list[ReviewQA] | None = None
-
-
-class JoinRequest(BaseModel):
-    """入群申请"""
-
-    model_config = ConfigDict(extra="ignore")
-
-    join_request_id: str | None = None   # 申请 ID，审批接口需回传
-    risk_tips: str | None = None
-    union_openid: str | None = None
-    member_openid: str | None = None
-    username: str | None = None          # 申请人昵称
-    apply_at: str | None = None          # 申请时间，RFC3339
-    apply_source: Literal["self_apply", "invited"] | None = None
-    invited_by: str | None = None        # 邀请人 openid（仅 invited 时有效）
-    bot: bool | None = None
-    verify_info: VerifyInfo | None = None
-
-
-class JoinRequestListReturn(BaseModel):
-    # 官方返回字段名为 list，与内建类型冲突，改用别名映射（两种名字均可填充）
-    model_config = ConfigDict(populate_by_name=True)
-
-    requests: list[JoinRequest] = Field(default=[], alias="list")
-    next_cursor: str | None = None       # 下一页游标；空串表示末页
-
-
-class AutoApproved(BaseModel):
-    """自动审批通过的扩展信息（仅下行事件携带）"""
-
-    strategy_id: str | None = None       # 自动审批通过的策略 ID
-
-
-# ================== Bot 方法实现（签名与上游 master 一致） ==================
-
-
-@API
-async def get_group_info(self, *, group_id: str) -> GroupInfoReturn:
-    request = Request(
-        "GET",
-        self.adapter.get_api_base().joinpath("v2", "groups", group_id, "info"),
-    )
-    return type_validate_python(GroupInfoReturn, await self._request(request))
-
-
-@API
-async def get_group_bot_state(self, *, group_id: str) -> GroupBotStateReturn:
-    request = Request(
-        "GET",
-        self.adapter.get_api_base().joinpath("v2", "groups", group_id, "bot_state"),
-    )
-    return type_validate_python(GroupBotStateReturn, await self._request(request))
-
-
-@API
-async def get_group_mute_setting(self, *, group_id: str) -> GroupRestrictChatSettingReturn:
-    request = Request(
-        "GET",
-        self.adapter.get_api_base().joinpath(
-            "v2", "groups", group_id, "restrict_chat_setting"
-        ),
-    )
-    return type_validate_python(
-        GroupRestrictChatSettingReturn, await self._request(request)
-    )
-
-
-@API
-async def set_group_members_mute(
-    self, *, group_id: str, members: list[SetMemberMuteState]
-) -> None:
-    request = Request(
-        "POST",
-        self.adapter.get_api_base().joinpath(
-            "v2", "groups", group_id, "restrict_chat_setting"
-        ),
-        json={
-            "members": [
-                m.model_dump(mode="json", exclude_none=True) for m in members
-            ]
-        },
-    )
-    await self._request(request)
-
-
-@API
-async def get_group_join_request_list(
-    self,
-    *,
-    group_id: str,
-    cursor: str | None = None,
-    limit: int | None = None,
-) -> JoinRequestListReturn:
-    request = Request(
-        "GET",
-        self.adapter.get_api_base().joinpath(
-            "v2", "groups", group_id, "join_request_list"
-        ),
-        params=exclude_none({"cursor": cursor, "limit": limit}),
-    )
-    return type_validate_python(
-        JoinRequestListReturn, await self._request(request)
-    )
-
-
-@API
-async def approval_join_request(
-    self,
-    *,
-    group_id: str,
-    member_openid: str,
-    op: Literal["approve", "decline"],
-    join_request_id: str | None = None,
-    reject_reason: str | None = None,
-    add_to_member_blacklist: bool | None = None,
-) -> None:
-    request = Request(
-        "POST",
-        self.adapter.get_api_base().joinpath(
-            "v2", "groups", group_id, "approval_join_request", member_openid
-        ),
-        json=exclude_none(
-            {
-                "op": op,
-                "join_request_id": join_request_id,
-                "reject_reason": reject_reason,
-                "add_to_member_blacklist": add_to_member_blacklist,
-            }
-        ),
-    )
-    await self._request(request)
-
-
-_IMPLEMENTATIONS = {
-    "get_group_info": get_group_info,
-    "get_group_bot_state": get_group_bot_state,
-    "get_group_mute_setting": get_group_mute_setting,
-    "set_group_members_mute": set_group_members_mute,
-    "get_group_join_request_list": get_group_join_request_list,
-    "approval_join_request": approval_join_request,
-}
-
-
-def patch_qq_bot_group_admin_apis() -> dict[str, bool]:
-    """把群管理 API 补到 nonebot.adapters.qq.Bot 上。
-
-    适配器已原生提供（升级到含 PR #234 的版本后）的方法自动跳过，不覆盖。
-    返回 {方法名: 是否由本补丁添加}。
-
-    API 是依赖 ``__set_name__`` 的描述符，class-body 之外 setattr 不会触发它，
-    因此手动补 ``name``，使实例访问 ``bot.xxx()`` 与原生方法一样走
-    ``call_api``（含 CallingAPI hook 与调用日志）。
-    """
-    from nonebot.adapters.qq import Bot as QQBot
-    from nonebot.adapters.qq.utils import API
-
-    status: dict[str, bool] = {}
-    for name, func in _IMPLEMENTATIONS.items():
-        if hasattr(QQBot, name):
-            status[name] = False
-        else:
-            setattr(QQBot, name, func)
-            if isinstance(func, API) and not hasattr(func, "name"):
-                func.name = name
-            status[name] = True
-    patched = [name for name, added in status.items() if added]
-    if patched:
-        log("INFO", f"QQBot 群管理 API 补丁已应用: {patched}")
-    else:
-        log("DEBUG", "QQBot 群管理 API 已由适配器原生提供，跳过补丁")
-    return status
-
-
-# ================== GROUP_JOIN_REQUEST 事件补丁（上游 PR #234 未发版） ==================
-
-
-class _GroupJoinRequestEventType(str, Enum):
-    GROUP_JOIN_REQUEST = "GROUP_JOIN_REQUEST"
-
-
-def _build_group_join_request_event():
-    """构造 GroupJoinRequestEvent 事件类（字段与官方文档/上游 PR #234 一致）。"""
-    from nonebot.adapters.qq.event import NoticeEvent
-
-    class GroupJoinRequestEvent(NoticeEvent, JoinRequest):
-        """用户申请加群事件（Intent GROUP_MEMBER_EVENT 1<<24，仅群管理员可收到）"""
-
-        __type__ = _GroupJoinRequestEventType.GROUP_JOIN_REQUEST
-
-        group_openid: str
-        auto_approved: AutoApproved | None = None
-
-        def get_user_id(self) -> str:
-            return self.member_openid or ""
-
-        def get_session_id(self) -> str:
-            return f"group_{self.group_openid}_{self.member_openid}"
-
-        def get_event_description(self) -> str:
-            return escape_tag(
-                f"JoinRequest {self.join_request_id} from "
-                f"{self.member_openid}@[Group:{self.group_openid}]"
-            )
-
-    return GroupJoinRequestEvent
-
-
-GroupJoinRequestEvent = _build_group_join_request_event()
-
-
-def patch_qq_group_join_request_event() -> bool:
-    """把 GROUP_JOIN_REQUEST 事件类注册进适配器事件表（上游发版前的本地补丁）。
-
-    适配器原生提供该事件类后自动跳过。注意：接收推送还需订阅
-    GROUP_MEMBER_EVENT(1<<24) intent——在 .env 的 QQ_BOTS.intent 中
-    设置 "group_members": true。
-    """
-    from nonebot.adapters.qq.event import EVENT_CLASSES
-
-    if "GROUP_JOIN_REQUEST" in EVENT_CLASSES:
-        log("DEBUG", "GROUP_JOIN_REQUEST 事件已由适配器原生提供，跳过补丁")
-        return False
-
-    EVENT_CLASSES["GROUP_JOIN_REQUEST"] = GroupJoinRequestEvent
-    log("INFO", "QQBot GROUP_JOIN_REQUEST 事件补丁已注册")
-    return True
-
-
-# ================== QQReplyMessage 可选字段补丁（上游 master 修复的向后移植） ==================
-
-
-def patch_qq_reply_message_optional_fields() -> bool:
-    """把 ``QQReplyMessage.message_type/msg_idx`` 改为可选字段。
-
-    平台对合并消息（事件 message_type=103）下发的 msg_elements 元素可能只
-    携带 content 而缺少 message_type/msg_idx。1.7.2 的模型将两者声明为必填，
-    导致整条 GROUP_MESSAGE_CREATE 事件 ValidationError、消息被直接丢弃。
-    上游 master 已改为 ``int | None = None`` / ``str | None = None``，
-    此处发版前等价移植；适配器发版后字段已可选，自动跳过。
-
-    适配器内部对 msg_elements 仅按 ``element.msg_idx == ref_msg_idx`` 比对
-    寻找被引用消息，缺失时为 None、不命中即跳过，改为可选不影响其逻辑。
-    """
-    from nonebot.adapters.qq.models.qq import QQReplyMessage
-
-    fields = QQReplyMessage.model_fields
-    required = [
-        field
-        for field in (fields.get("message_type"), fields.get("msg_idx"))
-        if field is not None and field.is_required()
-    ]
-    if not required:
-        log("DEBUG", "QQReplyMessage 字段已可选（适配器已修复），跳过补丁")
-        return False
-
-    for field in required:
-        field.annotation = Optional[field.annotation]
-        field.default = None
-    QQReplyMessage.model_rebuild(force=True)
-
-    # 引用该模型的类在构建时内嵌了旧的 QQReplyMessage core schema，需一并重建
-    rebuild_targets: list[type] = []
-    try:
-        from nonebot.adapters.qq.models.qq import (
-            GroupQQMessage,
-            QQMessage,
-            UserQQMessage,
-        )
-
-        rebuild_targets += [QQMessage, UserQQMessage, GroupQQMessage]
-    except ImportError:
-        pass
-    try:
-        from nonebot.adapters.qq import event as qq_event
-
-        rebuild_targets += [
-            cls
-            for attr in (
-                "QQMessageEvent",
-                "C2CMessageCreateEvent",
-                "GroupMessageCreateEvent",
-                "GroupAtMessageCreateEvent",
-            )
-            if (cls := getattr(qq_event, attr, None)) is not None
-        ]
-    except ImportError:
-        pass
-    for cls in rebuild_targets:
-        try:
-            cls.model_rebuild(force=True)
-        except Exception as e:  # 单个类重建失败不阻塞，其余类仍能正常解析
-            log("WARNING", f"重建 {cls.__module__}.{cls.__name__} 失败: {e!r}")
-
-    log("INFO", "QQReplyMessage.message_type/msg_idx 已改为可选（合并消息事件解析补丁）")
-    return True
+from nonebot.adapters.qq.utils import log
 
 
 # ================== 回复装饰补丁（@回复者 + 自动引用，OneBot/官Bot） ==================
@@ -459,9 +52,10 @@ def patch_qq_send_reply_quote() -> bool:
       （2026-09 render_probe 探测结论）。C2C 不注入（官方 @某人 仅群聊/
       文字子频道可用）。图片与 @ 可共存于同一条 markdown：URL 型 image
       段直接以 ``![图片 #Wpx #Hpx](url)`` 内嵌；字节型 file_image 段经
-      image_host 图床（基于 config.ip_address，与 ws 共用驱动端口）转
-      公网 URL 后内嵌。**降级**：无法内嵌时（视频/音频/文件段、图片字节
-      无法暴露公网 URL——未配置 ip_address 等），无论引用开关是否打开，
+      QQ 素材管理接口（qq_media）上传平台换取 ``qqbot-media://`` 引用后
+      内嵌（无需公网地址；素材配额仅 100 张，消息发出即删除，平台发送
+      时已转存副本、删除不影响已发出消息）。**降级**：无法内嵌时
+      （视频/音频/文件段、素材上传失败等），无论引用开关是否打开，
       自动降级为引用模式（附带 message_reference 定位回复对象）。正文
       中的 markdown 元字符未做转义——QQ 自定义 markdown 对不成对的
       ``*`` ``_`` 等按原文显示，若实测出现斜体/标题等样式串扰再补转义。
@@ -486,6 +80,7 @@ def patch_qq_send_reply_quote() -> bool:
     @functools.wraps(original_send)
     async def send(self, event, message, **kwargs):
         prepend = []
+        uploaded_media: list[str] = []
         if isinstance(
             event,
             (GroupMessageCreateEvent, C2CMessageCreateEvent, InteractionCreateEvent),
@@ -526,7 +121,7 @@ def patch_qq_send_reply_quote() -> bool:
                         seg.type in ("text", "emoji", "image", "file_image")
                         for seg in msg
                     ):
-                        from .image_host import embed_image
+                        from .qq_media import embed_media_image
 
                         lines: list[str] = []
                         buf: list[str] = []
@@ -552,12 +147,13 @@ def patch_qq_send_reply_quote() -> bool:
                                 if not isinstance(content, (bytes, bytearray)):
                                     embed_failed = True
                                     break
-                                # 字节图：经图床转公网 URL（超限自动压缩，宽高同步）
-                                embedded = embed_image(bytes(content))
-                                if embedded is None:
+                                # 字节图经素材管理上传平台换取引用（无需公网地址）
+                                media = await embed_media_image(self, bytes(content))
+                                if media is None:
                                     embed_failed = True
                                     break
-                                url, width, height = embedded
+                                url, width, height, image_id = media
+                                uploaded_media.append(image_id)
                             if not url:
                                 embed_failed = True
                                 break
@@ -593,7 +189,15 @@ def patch_qq_send_reply_quote() -> bool:
             if prepend:
                 msg = Message(prepend) + msg
             message = msg
-        return await original_send(self, event, message, **kwargs)
+        try:
+            return await original_send(self, event, message, **kwargs)
+        finally:
+            # 素材配额仅 100 张：消息已处理（成功或失败）即删除本次上传素材
+            if uploaded_media:
+                from .qq_media import release_media_image
+
+                for image_id in uploaded_media:
+                    await release_media_image(self, image_id)
 
     send._reply_quote_patched = True
     QQBot.send = send
@@ -660,9 +264,6 @@ def patch_onebot_send_reply_deco() -> bool:
 def apply_all() -> dict[str, bool]:
     """应用全部适配器补丁（koinoribot_nb2 插件加载时调用，均可重复调用）。"""
     return {
-        "qq_group_admin_apis": patch_qq_bot_group_admin_apis(),
-        "qq_group_join_request_event": patch_qq_group_join_request_event(),
-        "qq_reply_message_optional_fields": patch_qq_reply_message_optional_fields(),
         "qq_send_reply_quote": patch_qq_send_reply_quote(),
         "onebot_send_reply_deco": patch_onebot_send_reply_deco(),
     }
