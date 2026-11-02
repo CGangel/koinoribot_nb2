@@ -75,6 +75,47 @@ def _trigger_match(text: str) -> bool:
     return settings.bot_name() in text
 
 
+def _marked_plain_text(event: Event) -> str:
+    """带 @ 标记的纯文本：at 段渲染为可读标记，供上下文记录与对话输入。
+
+    两个适配器的 extract_plain_text 都会丢弃 at 段，AI 在上下文中看不到
+    消息 @ 了人、@ 的是谁，会把 @ 别人的消息理解成对自己说的。对本
+    bot 的 at 渲染为「@{触发词}」（OneBot 按 self_id、官Bot 按 is_bot
+    + self_id 判定），@ 其他人渲染为「@昵称」（OneBot 段自带 name 时
+    用之，否则用 QQ 号），@全体成员原样。
+    """
+    name = settings.bot_name()
+    self_id = str(getattr(event, "self_id", "") or "")
+    parts: list[str] = []
+    try:
+        segments = list(event.message or [])
+    except Exception:
+        return ""
+    for seg in segments:
+        seg_type = str(getattr(seg, "type", ""))
+        data = getattr(seg, "data", None) or {}
+        if seg_type == "text":
+            parts.append(str(data.get("text", "")))
+        elif seg_type == "at":
+            qq_id = str(data.get("qq", "")).strip()
+            if qq_id == "all":
+                parts.append("@全体成员 ")
+                continue
+            if qq_id and self_id and qq_id == self_id:
+                parts.append(f"@{name} ")
+            else:
+                target = str(data.get("name") or "").strip() or qq_id
+                parts.append(f"@{target} ")
+        elif seg_type == "mention_user":
+            user_id = str(data.get("user_id", "")).strip()
+            if data.get("is_bot") and self_id and user_id == self_id:
+                parts.append(f"@{name} ")
+            else:
+                target = str(data.get("username") or "").strip()
+                parts.append(f"@{target or '某人'} ")
+    return "".join(parts)
+
+
 def _extract_image_urls(event: Event) -> list[str]:
     """提取消息中的图片附件 URL（官Bot attachment 段 / OneBot image 段，
     上限 3 张；兼容 CQ 转义的 &amp;）。"""
@@ -173,32 +214,21 @@ def _private_allowed(event: Event) -> bool:
     return _is_owner(uid)
 
 
-def _switch_owner(scene: dict, uid: int) -> Optional[str]:
-    """聊天开关存储键：私聊每用户、群聊每用户每群（官Bot 群需已绑定
-    真实群号；未绑定等异常场景返回 None，视为未开启）。"""
-    if scene["is_group"]:
-        if scene["openid"]:
-            bound = settings.group_bind_id(scene["openid"])
-            if not bound:
-                return None
-            return f"g:{bound}:{uid}"
-        return f"g:{scene['group_key']}:{uid}"
+def _switch_owner(scene: dict, uid: int) -> str:
+    """聊天开关存储键：用户级全局开关（所有群与私聊共用一个，跨群生效）。"""
     return f"u:{uid}"
 
 
 async def _chat_enabled(scene: dict, uid: int) -> bool:
-    """当前用户在本场景是否已开启 AI 聊天（默认关闭，用户级分场景）。"""
-    owner = _switch_owner(scene, uid)
-    if owner is None:
-        return False
-    return await MlaiStore.get_switch(owner)
+    """用户是否已开启 AI 聊天（全局开关，默认关闭）。"""
+    return await MlaiStore.get_switch(_switch_owner(scene, uid))
 
 
 def _help_text() -> str:
     name = settings.bot_name()
     return f"""【AI聊天】
 ==对话==
-  启用AI聊天 —— 「{name}请和我说话」也行；开启后提到「{name}」即可聊
+  启用AI聊天 —— 「{name}请和我说话」也行；开启后提到「{name}」即可聊（全局生效，所有群通用）
   关闭AI聊天 —— 「不理{name}了」也行；关闭后不再回应你（默认关闭）
   连续对话会记住上文；告诉过{name}的事会被长期记住；每次对话消耗星星
 
@@ -394,12 +424,14 @@ async def handle_passive_record(
     if _is_mlai_command(text) or _is_chat_command(text):
         return  # mlai 指令消息不入上下文：非对话类指令完全排除，
         # 对话命令由对话路径记录（限频被拒时不落库）
+    # 记录带 @ 标记的文本（触发/指令判定用纯文本，语义不变）
+    record_text = _marked_plain_text(event).strip()
     images = await _capture_images(event)
-    if not text and not images:
+    if not record_text and not images:
         return
     await MlaiStore.append_message(
         kind, owner, ROLE_USER, await _sender_name(event, uid),
-        text or "（图片）", settings.temp_limit(), images=images,
+        record_text or "（图片）", settings.temp_limit(), images=images,
     )
 
 
@@ -410,9 +442,13 @@ async def handle_mention_chat(
     matcher: Matcher,
     uid: int = Depends(get_uid),
 ):
-    """触发词匹配：对话内容 = 去掉首次出现的触发词后的整条消息。"""
-    raw = event.message.extract_plain_text() if event.message else ""
-    text = raw.replace(settings.bot_name(), "", 1).strip()
+    """触发词匹配：对话内容 = 去掉触发词（或对本 bot 的 @ 标记）后的
+    整条消息；@ 其他人的标记保留在对话内容里，AI 可据此判断语境。"""
+    raw = _marked_plain_text(event)
+    name = settings.bot_name()
+    text = (
+        raw.replace(f"@{name}", "", 1).replace(name, "", 1).strip()
+    )
     await _process_chat(
         event, matcher, bot, text, uid, images=_extract_image_urls(event)
     )
@@ -436,7 +472,7 @@ async def handle_chat(
 
 
 # ===== 聊天开关指令 =====
-# 用户级、分场景（私聊每用户、群聊每用户每群），默认关闭：未开启时
+# 用户级全局开关（所有群与私聊共用一个，跨群生效），默认关闭：未开启时
 # 聊天完全不响应（静默）。别名中的触发词在插件加载时按当前 bot_name
 # 固定（改名后需重启才更新别名；触发词本身实时生效）
 switch_on_cmd = on_command(
@@ -457,7 +493,8 @@ async def _handle_chat_switch(
     event: Event, matcher: Matcher, uid: int, enabled: bool
 ):
     """聊天开关指令：场景门槛与对话同判（非白名单群/私聊关闭时静默），
-    指令与回复都不进入上下文（block=True 已阻断记录器）。"""
+    指令与回复都不进入上下文（block=True 已阻断记录器）。开关为用户级
+    全局，一处开启全群生效。"""
     scene = _resolve_scene(event)
     if scene["is_group"]:
         if not _group_ready(scene):
@@ -466,10 +503,7 @@ async def _handle_chat_switch(
         return
     if _is_self_message(event):
         return
-    owner = _switch_owner(scene, uid)
-    if owner is None:
-        return
-    await MlaiStore.set_switch(owner, enabled)
+    await MlaiStore.set_switch(_switch_owner(scene, uid), enabled)
     name = settings.bot_name()
     if enabled:
         await matcher.finish(f"好呀～{name}会回应你啦")
@@ -635,7 +669,7 @@ async def handle_status(
         f"""【mlai 状态】
 我的记忆：{memory_count} 条（活跃窗口 {window} 条）
 我的最近对话：{rows} / {max_rows} 条
-AI聊天：{'开启' if switch_on else '关闭'}（发送 启用AI聊天 / 关闭AI聊天 切换）
+AI聊天：{'开启' if switch_on else '关闭'}（全局，发送 启用AI聊天 / 关闭AI聊天 切换）
 群聊记忆：{'开启' if settings.group_enable() else '关闭'}
 冷却：{settings.user_cd()} 秒/次
 {scene_line}"""
