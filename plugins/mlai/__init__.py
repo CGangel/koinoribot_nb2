@@ -64,8 +64,18 @@ def _resolve_scene(event: Event) -> dict:
 
 
 def _is_blocked(text: str) -> bool:
-    """消息包含任一屏蔽词则完全不响应（默认含另一 bot 的触发词）。"""
-    return any(word in text for word in settings.block_words())
+    """消息包含任一屏蔽词则完全不响应（默认不屏蔽）。
+
+    含触发词的屏蔽词不生效：若屏蔽词里含 bot_name（历史默认值「梦灵酱」
+    就含触发词「梦灵」），会把「呼叫 bot」本身也拦掉，故此类词跳过。
+    """
+    name = settings.bot_name()
+    for word in settings.block_words():
+        if name and name in word:
+            continue
+        if word in text:
+            return True
+    return False
 
 
 def _trigger_match(text: str) -> bool:
@@ -442,13 +452,12 @@ async def handle_mention_chat(
     matcher: Matcher,
     uid: int = Depends(get_uid),
 ):
-    """触发词匹配：对话内容 = 去掉触发词（或对本 bot 的 @ 标记）后的
-    整条消息；@ 其他人的标记保留在对话内容里，AI 可据此判断语境。"""
-    raw = _marked_plain_text(event)
-    name = settings.bot_name()
-    text = (
-        raw.replace(f"@{name}", "", 1).replace(name, "", 1).strip()
-    )
+    """触发词匹配：对话内容 = 整条消息原文（含触发词称呼本身，不删字）。
+
+    触发词只用于判定是否响应，不参与内容裁剪——「梦灵在吗」「梦灵酱，
+    你在吗」都完整交给 AI，避免称呼被削成「在吗」「酱，你在吗」。
+    @ 标记同样保留（对本 bot 的 at 渲染为「@称呼」）。"""
+    text = _marked_plain_text(event)
     await _process_chat(
         event, matcher, bot, text, uid, images=_extract_image_urls(event)
     )

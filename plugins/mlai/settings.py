@@ -110,10 +110,10 @@ def starstone_chars() -> int:
 
 
 def block_words() -> list[str]:
-    """屏蔽词：消息包含任一词即静默不响应。空列表 = 不屏蔽。"""
+    """屏蔽词：消息包含任一词即静默不响应。空列表（默认）= 不屏蔽。"""
     raw = getattr(config, "mlai_block_words", None)
     if not isinstance(raw, list):
-        raw = ["梦灵酱"]
+        return []
     return [str(word).strip() for word in raw if str(word).strip()]
 
 
