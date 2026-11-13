@@ -49,6 +49,11 @@ TOOL_LOOP_MAX_ROUNDS = 3
 # 单条消息最多识别的图片数
 MAX_IMAGES = 3
 
+# 通用审核不可用（未开启/配置错误/接口异常）时给用户的统一提示
+REVIEW_UNAVAILABLE_MESSAGE = (
+    "未开启内容审核或内容审核异常，无法使用ai聊天，请联系管理员"
+)
+
 # 计价时每张图片固定折算的字符数（base64 不计入字符统计）
 IMAGE_PRICE_CHARS = 100
 
@@ -376,7 +381,7 @@ async def run_dialogue(
       {"status": "silent"}                            星星不足，静默终止
       {"status": "refused"}                            NSFW 硬截断
       {"status": "unbound_group", "openid"}            官Bot群聊未绑定群号
-      {"status": "error", "message"}                   审核解析失败/接口错误
+      {"status": "error", "message"}                   审核不可用/解析失败/接口错误
     """
     if scene["is_group"] and settings.group_enable() and scene.get("openid"):
         bound = settings.group_bind_id(scene["openid"])
@@ -427,16 +432,20 @@ async def run_dialogue(
             text=text,
             image_data_urls=image_parts,
             scene="AI对话用户输入",
+            require_ready=True,
         )
         if review_status == "refused":
             # NSFW 硬截断：未过审消息与拒绝回复都不入上下文，防止内容
             # 残留在历史里跨消息逃逸审核
             return {"status": "refused"}
+        if review_status == "not_ready":
+            # 通用审核未开启或配置不完整：mlai 强制要求审核可用
+            return {"status": "error", "message": REVIEW_UNAVAILABLE_MESSAGE}
         if review_status != "ok":
             # 审核异常/解析失败：消息不入上下文（未过审内容一律不落库）
             return {
                 "status": "error",
-                "message": review_err or "审核模块返回异常，请稍后再试",
+                "message": review_err or REVIEW_UNAVAILABLE_MESSAGE,
             }
 
         # 过审后才把当前消息写入上下文（旁听/对话统一记录），seq 供读取时

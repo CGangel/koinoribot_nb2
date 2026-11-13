@@ -24,6 +24,10 @@ _IMAGE_JPEG_QUALITY = 85
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
+# 要求审核必须可用时（require_ready=True）的统一提示
+_REVIEW_UNAVAILABLE_MESSAGE = "未开启内容审核或内容审核异常，无法使用该功能，请联系管理员"
+_NOT_READY_MESSAGE = "未开启内容审核，无法使用该功能，请联系管理员"
+
 REVIEW_SYSTEM = (
     "你是内容安全审核模块，只输出一个 JSON 对象，不要输出任何其他文字、"
     "解释或思考过程。对用户提交的内容做一项判断：\n"
@@ -307,25 +311,33 @@ async def review_and_extract_keywords(
     image_data_urls: list[str] | None = None,
     image_urls: list[str] | None = None,
     scene: str = "",
+    require_ready: bool = False,
 ) -> tuple[str, list[str], str]:
     """合并内容审核与关键词提取（供 mlai 第 1 轮调用）。
 
-    使用通用审核模型配置（nsfw_review_*）；开关关闭或未配置完整时直接
-    放行（返回 ("ok", [], "")）。审核失败/异常时 fail-closed。
-    支持直接传入已下载的 image_data_urls（data URL），避免重复下载。
+    使用通用审核模型配置（nsfw_review_*）。开关关闭或未配置完整时：
+    - require_ready=False（默认）放行（返回 ("ok", [], "")）
+    - require_ready=True 返回 ("not_ready", [], 提示)，供「审核必须可用」
+      的调用方（如 mlai）拒绝服务
+    审核失败/异常时 fail-closed。支持直接传入已下载的 image_data_urls
+    （data URL），避免重复下载图片。
 
     返回 (status, keywords, message)：
-      - status: "ok" | "refused" | "error"
+      - status: "ok" | "not_ready" | "refused" | "error"
       - keywords: 提取的检索关键词列表（仅 ok 时非空）
-      - message: refused/error 时的提示文案
+      - message: not_ready/refused/error 时的提示文案
     """
     if not getattr(config, "nsfw_review_enable", False):
+        if require_ready:
+            return "not_ready", [], _NOT_READY_MESSAGE
         return "ok", [], ""
     if not review_configured():
         logger.warning(
             "[nsfw_review] 审核开关已开启但接口未配置完整"
             "（nsfw_review_api_key / api_base_url / model），本次跳过审核"
         )
+        if require_ready:
+            return "not_ready", [], _NOT_READY_MESSAGE
         return "ok", [], ""
 
     text = (text or "").strip()
@@ -365,10 +377,10 @@ async def review_and_extract_keywords(
                 break
     except RuntimeError as e:
         logger.error(f"[nsfw_review] 审核请求失败: {e}")
-        return "error", [], "审核服务暂时不可用，请稍后再试"
+        return "error", [], _REVIEW_UNAVAILABLE_MESSAGE
     if nsfw is None:
         logger.error(f"[nsfw_review] 审核结果解析失败: {reply[:200]}")
-        return "error", [], "审核模块返回异常，请稍后再试"
+        return "error", [], _REVIEW_UNAVAILABLE_MESSAGE
     if nsfw:
         return "refused", [], "内容包含不适宜信息，暂时无法提交"
     return "ok", keywords, ""
