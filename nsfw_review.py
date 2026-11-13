@@ -1,4 +1,4 @@
-"""nsfw_review - 用户提交内容的外接 LLM 审核（昵称/图片/漂流瓶等通用）。"""
+"""nsfw_review - 用户提交内容的外接 LLM 审核（昵称/图片/漂流瓶/AI对话等通用）。"""
 
 
 import asyncio
@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import re
+from typing import Optional
 
 import aiohttp
 from nonebot.log import logger
@@ -31,6 +32,16 @@ REVIEW_SYSTEM = (
     "或结合标注的内容用途判断，内容在该用途下语义是否反常、不当。"
     "命中任意因素，则标记为true。不要把中性词本身误判为不适宜。\n"
     "输入可能包含图片附件，图片内容同样适用以上判断。"
+)
+
+REVIEW_WITH_KEYWORDS_SYSTEM = (
+    "你是内容安全审核与关键词提取模块，只输出一个 JSON 对象，不要输出任何"
+    "其他文字、解释或思考过程。对用户输入做两项判断：\n"
+    '{"nsfw": true/false, "keywords": ["关键词1", "关键词2"]}\n'
+    "nsfw：输入是否包含色情、暴力、赌博、违法、政治风险等不适宜内容（true/false）；\n"
+    "keywords：3~8 个可用于检索记忆库的关键词（中文优先，保留专有名词与"
+    "人名）。输入本身也要作为语境考虑，但不要把中性词误判为不适宜。"
+    "输入可能包含图片附件，图片内容同样适用于以上两项判断。"
 )
 
 
@@ -121,7 +132,9 @@ def _coerce_param_value(value):
     return value
 
 
-def _build_payload(content_parts: list[dict]) -> dict:
+def _build_payload(
+    content_parts: list[dict], system: str = REVIEW_SYSTEM
+) -> dict:
     """组装审核请求体：自定义参数先入、核心参数后写（model/messages/
     stream 不可被覆盖）。"""
     raw = getattr(config, "nsfw_review_extra_params", None)
@@ -133,7 +146,7 @@ def _build_payload(content_parts: list[dict]) -> dict:
         {
             "model": str(config.nsfw_review_model or "").strip(),
             "messages": [
-                {"role": "system", "content": REVIEW_SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": content_parts},
             ],
             "stream": False,
@@ -142,10 +155,12 @@ def _build_payload(content_parts: list[dict]) -> dict:
     return payload
 
 
-async def _request_verdict(content_parts: list[dict]) -> str:
+async def _request_verdict(
+    content_parts: list[dict], system: str = REVIEW_SYSTEM
+) -> str:
     """调用 OpenAI 兼容接口审核，返回模型回复文本。失败抛 RuntimeError。"""
     base = str(config.nsfw_review_api_base_url or "").strip().rstrip("/")
-    payload = _build_payload(content_parts)
+    payload = _build_payload(content_parts, system=system)
     headers = {
         "Authorization": f"Bearer {config.nsfw_review_api_key}",
         "Content-Type": "application/json",
@@ -174,20 +189,54 @@ async def _request_verdict(content_parts: list[dict]) -> str:
         raise RuntimeError("审核接口返回格式异常")
 
 
-def _parse_verdict(text: str):
-    """从回复解析 {"nsfw": bool}；无法解析返回 None。"""
-    match = re.search(r"\{.*\}", _THINK_RE.sub("", text), re.DOTALL)
+def _parse_verdict_dict(text: str) -> Optional[dict]:
+    """从回复解析 JSON 对象（容忍 <think> 与代码围栏）；失败返回 None。"""
+    cleaned = re.sub(r"```(?:json)?", "", _THINK_RE.sub("", text or "")).strip()
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not match:
         return None
     try:
-        value = json.loads(match.group(0)).get("nsfw")
-    except (json.JSONDecodeError, AttributeError):
+        data = json.loads(match.group(0))
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
         return None
+
+
+def _parse_bool_flag(value) -> Optional[bool]:
     if isinstance(value, bool):
         return value
     if isinstance(value, str) and value.strip().lower() in ("true", "false"):
         return value.strip().lower() == "true"
     return None
+
+
+def _parse_verdict(text: str):
+    """从回复解析 {"nsfw": bool}；无法解析返回 None。"""
+    data = _parse_verdict_dict(text)
+    if data is None:
+        return None
+    return _parse_bool_flag(data.get("nsfw"))
+
+
+def parse_verdict_with_keywords(text: str) -> tuple[Optional[bool], list[str]]:
+    """从回复解析 (nsfw, keywords)；解析失败返回 (None, [])。"""
+    data = _parse_verdict_dict(text)
+    if data is None:
+        return None, []
+    nsfw = _parse_bool_flag(data.get("nsfw"))
+    if nsfw is None:
+        return None, []
+    raw_keywords = data.get("keywords")
+    if not isinstance(raw_keywords, list):
+        raw_keywords = []
+    keywords = [str(k).strip() for k in raw_keywords if str(k).strip()]
+    return nsfw, keywords[:8]
 
 
 async def review_user_content(
@@ -251,3 +300,75 @@ async def review_user_content(
     if verdict:
         return False, "内容包含不适宜信息，暂时无法提交"
     return True, ""
+
+
+async def review_and_extract_keywords(
+    text: str = "",
+    image_data_urls: list[str] | None = None,
+    image_urls: list[str] | None = None,
+    scene: str = "",
+) -> tuple[str, list[str], str]:
+    """合并内容审核与关键词提取（供 mlai 第 1 轮调用）。
+
+    使用通用审核模型配置（nsfw_review_*）；开关关闭或未配置完整时直接
+    放行（返回 ("ok", [], "")）。审核失败/异常时 fail-closed。
+    支持直接传入已下载的 image_data_urls（data URL），避免重复下载。
+
+    返回 (status, keywords, message)：
+      - status: "ok" | "refused" | "error"
+      - keywords: 提取的检索关键词列表（仅 ok 时非空）
+      - message: refused/error 时的提示文案
+    """
+    if not getattr(config, "nsfw_review_enable", False):
+        return "ok", [], ""
+    if not review_configured():
+        logger.warning(
+            "[nsfw_review] 审核开关已开启但接口未配置完整"
+            "（nsfw_review_api_key / api_base_url / model），本次跳过审核"
+        )
+        return "ok", [], ""
+
+    text = (text or "").strip()
+    scene = (scene or "").strip()
+    label = f"（内容用途：{scene}）\n" if scene else ""
+    parts: list[dict] = [
+        {
+            "type": "text",
+            "text": f"{label}{text or '（用户上传了图片）'}",
+        }
+    ]
+    data_urls = [u for u in (image_data_urls or []) if u][:_MAX_IMAGES]
+    for data_url in data_urls:
+        parts.append({"type": "image_url", "image_url": {"url": data_url}})
+    remain = _MAX_IMAGES - len(data_urls)
+    if remain > 0 and image_urls:
+        try:
+            for url in [u for u in image_urls if u][:remain]:
+                parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": await _download_image_data_url(url)},
+                    }
+                )
+        except RuntimeError as e:
+            logger.warning(f"[nsfw_review] 送审图片获取失败: {e}")
+            return "error", [], "图片获取失败，请稍后再试"
+
+    nsfw: Optional[bool] = None
+    keywords: list[str] = []
+    reply = ""
+    try:
+        for _ in range(2):  # 解析失败重试一次
+            reply = await _request_verdict(parts, system=REVIEW_WITH_KEYWORDS_SYSTEM)
+            nsfw, keywords = parse_verdict_with_keywords(reply)
+            if nsfw is not None:
+                break
+    except RuntimeError as e:
+        logger.error(f"[nsfw_review] 审核请求失败: {e}")
+        return "error", [], "审核服务暂时不可用，请稍后再试"
+    if nsfw is None:
+        logger.error(f"[nsfw_review] 审核结果解析失败: {reply[:200]}")
+        return "error", [], "审核模块返回异常，请稍后再试"
+    if nsfw:
+        return "refused", [], "内容包含不适宜信息，暂时无法提交"
+    return "ok", keywords, ""

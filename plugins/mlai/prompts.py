@@ -1,26 +1,11 @@
 """mlai 提示词、工具定义与解析。"""
 
 
-import json
-import re
-from typing import Any, Optional
+from typing import Optional
 
 from nonebot.log import logger
 
 from .service import SCOPE_GLOBAL, SCOPE_GROUP, SCOPE_USER
-
-JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
-JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
-
-ROUND1_SYSTEM = (
-    "你是内容审核与关键词提取模块，只输出一个 JSON 对象，不要输出任何"
-    "其他文字、解释或思考过程。对用户输入做两项判断：\n"
-    '{"nsfw": true, "keywords": ["关键词1", "关键词2"]}\n'
-    "nsfw：输入是否包含色情、暴力、赌博、违法、政治风险等不适宜内容（true/false）；\n"
-    "keywords：3~8 个可用于检索记忆库的关键词（中文优先，保留专有名词与"
-    "人名）。输入本身也要作为语境考虑，但不要把中性词误判为不适宜。"
-    "输入可能包含图片附件，图片内容同样适用于以上两项判断。"
-)
 
 MEMORY_TOOLS_SECTION = """# 记忆维护（工具调用）
 你拥有跨对话的长期记忆库，通过工具调用维护：keep_status（维持现状）、
@@ -197,44 +182,6 @@ def parse_tool_message(message: dict) -> tuple[str, list[dict]]:
             seen_ids.add(key)
         filtered.append(op)
     return reply, filtered
-
-
-def _parse_json_payload(text: str, prefer: str = "object") -> Any:
-    """从模型输出中提取 JSON 值（容忍代码围栏与前后杂文）。"""
-    cleaned = re.sub(r"```(?:json)?", "", text or "").strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-    patterns = (
-        [JSON_OBJECT_RE, JSON_ARRAY_RE]
-        if prefer == "object"
-        else [JSON_ARRAY_RE, JSON_OBJECT_RE]
-    )
-    for pattern in patterns:
-        match = pattern.search(cleaned)
-        if match is None:
-            continue
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
-def parse_round1(text: str) -> tuple[Optional[bool], list[str]]:
-    """解析第 1 轮输出 → (nsfw 标记, 关键词列表)；解析失败返回 (None, [])。"""
-    data = _parse_json_payload(text)
-    if not isinstance(data, dict):
-        return None, []
-    nsfw = data.get("nsfw")
-    if not isinstance(nsfw, bool):
-        return None, []
-    raw_keywords = data.get("keywords")
-    if not isinstance(raw_keywords, list):
-        raw_keywords = []
-    keywords = [str(k).strip() for k in raw_keywords if str(k).strip()]
-    return nsfw, keywords[:8]
 
 
 def sanitize_terms(keywords: list[str], max_terms: int = 8) -> list[str]:

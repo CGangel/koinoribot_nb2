@@ -9,14 +9,13 @@ from typing import Awaitable, Callable, Optional
 
 from nonebot.log import logger
 
+from ...nsfw_review import review_and_extract_keywords
 from . import settings
 from .client import download_image_data_url
 from .prompts import (
-    ROUND1_SYSTEM,
     build_round2_system,
     build_tools_spec,
     build_user_content,
-    parse_round1,
     parse_tool_message,
     render_context_block,
     sanitize_terms,
@@ -36,6 +35,11 @@ from .service import (
 # （(messages, *, tools, tool_choice) -> {content, tool_calls}），
 # 注入以便测试替换
 ChatFn = Callable[..., Awaitable[dict]]
+
+# review_fn: 与 nsfw_review.review_and_extract_keywords 同签名
+# （(text, image_data_urls, scene) -> (status, keywords, message)），
+# 注入以便测试替换
+ReviewFn = Callable[..., Awaitable[tuple[str, list[str], str]]]
 
 # 多轮工具循环上限：模型只发工具调用不给正文时，最多回填工具结果
 # 续答的轮数（防止循环失控推高成本；续答请求仅在尾部追加消息，仍
@@ -351,6 +355,7 @@ async def run_dialogue(
     is_su: bool,
     scene: dict,
     chat_fn: ChatFn,
+    review_fn: ReviewFn = review_and_extract_keywords,
     store: type[MlaiStore] = MlaiStore,
     images: Optional[list[str]] = None,
     speaker: str = "",
@@ -418,27 +423,21 @@ async def run_dialogue(
         spent = cost
 
     async def _rounds() -> dict:
-        r1_message = None
-        for _ in range(2):  # 解析失败重试一次
-            r1_message = await chat_fn(
-                [
-                    {"role": "system", "content": ROUND1_SYSTEM},
-                    {
-                        "role": "user",
-                        "content": build_user_content(text, image_parts),
-                    },
-                ]
-            )
-            nsfw, keywords = parse_round1(r1_message.get("content") or "")
-            if nsfw is not None:
-                break
-        else:
-            # 审核解析失败：消息不入上下文（未过审内容一律不落库）
-            return {"status": "error", "message": "审核模块返回异常，请稍后再试"}
-        if nsfw is True:
+        review_status, keywords, review_err = await review_fn(
+            text=text,
+            image_data_urls=image_parts,
+            scene="AI对话用户输入",
+        )
+        if review_status == "refused":
             # NSFW 硬截断：未过审消息与拒绝回复都不入上下文，防止内容
             # 残留在历史里跨消息逃逸审核
             return {"status": "refused"}
+        if review_status != "ok":
+            # 审核异常/解析失败：消息不入上下文（未过审内容一律不落库）
+            return {
+                "status": "error",
+                "message": review_err or "审核模块返回异常，请稍后再试",
+            }
 
         # 过审后才把当前消息写入上下文（旁听/对话统一记录），seq 供读取时
         # 排除自身——当前消息以末条用户消息参与请求，不重复进历史
